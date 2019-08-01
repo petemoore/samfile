@@ -1,20 +1,7 @@
-# samfile
+package main
 
-[![Build Status](https://img.shields.io/travis/winfreddy88/samfile.svg?style=flat-square&label=build+status)](https://travis-ci.org/winfreddy88/samfile)
-[![GoDoc](https://godoc.org/github.com/winfreddy88/samfile?status.svg)](https://godoc.org/github.com/winfreddy88/samfile)
-[![Coverage Status](https://coveralls.io/repos/winfreddy88/samfile/badge.svg?branch=master&service=github)](https://coveralls.io/github/winfreddy88/samfile?branch=master)
-[![License](https://img.shields.io/badge/license-MIT-orange.svg)](https://opensource.org/licenses/MIT)
-
-`samfile` is a tool for manipulating _individual files_ inside SAM Coupé floppy
-disk images.
-
-For reading, writing, creating and converting entire SAM disk images (and other
-disk formats), see the excellent [samdisk](https://simonowen.com/samdisk)
-utility.
-
-```
-$ samfile --help
-samfile 1.0.0
+func usage(versionName string) string {
+	return versionName + `
 
 Manipulate files in SAM Coupé floppy disk images.
 
@@ -45,14 +32,5 @@ Manipulate files in SAM Coupé floppy disk images.
                             sudo mknod /dev/fd0u800 b 2 120
     FILE                  A single file to extract from the disk image. To
                           extract ALL files from the disk image, omit FILE.
-```
-
-## Installing
-
-Download from https://github.com/winfreddy88/samfile/releases
-
-## Building from source
-
-```
-go get github.com/winfreddy88/samfile/...
-```
+`
+}
