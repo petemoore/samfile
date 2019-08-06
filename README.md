@@ -14,37 +14,50 @@ utility.
 
 ```
 $ samfile --help
-samfile 1.0.0 [ revision: https://github.com/winfreddy88/samfile/commits/84fa39d2433abdcb47d3df2b6e1a25c36ac587da ]
+samfile [ revision: https://github.com/winfreddy88/samfile/commits/6f52b243095c2f91ad5b843e7892c495ddf01ea3 ]
 
 Manipulate files in SAM Coupé floppy disk images.
 
   Usage:
-    samfile extract [--dest TARGET] IMAGE [FILE]
-    samfile ls IMAGE
+    samfile extract -i IMAGE [-t TARGET]
+    samfile cat -i IMAGE -f FILE
+    samfile ls -i IMAGE [-v|-n]
+    samfile basic-to-text
     samfile --help
     samfile --version
 
   Targets:
-    extract               Extracts one or more files from a SAM Disk image file.
+    basic-to-text         Read a SAM Basic encoded file from stdin and output
+                          plain text listing to stdout.
+    cat                   Output a single file from a SAM Disk image file to
+                          stdout.
+    extract               Extracts all files from a SAM Disk image file to a
+                          local directory.
     ls                    Lists files on SAM Disk image file.
 
   Options:
-    --dest TARGET         When specifying a FILE to extract from a Disk image,
-                          TARGET can be either the file to save to, or an
-                          existing directory to write the file to with its
-                          original name from the disk image. When extracting all
-                          files (no FILE is specfied) TARGET should be an
-                          existing directory to write all files to. Defaults to
-                          current directory.
-    --help                Display this help text.
-    --version             Display the release version of samfile.
-    IMAGE                 The raw floppy disk image (.mgt format / 819200 bytes)
+    -i IMAGE              The raw floppy disk image (.mgt format / 819200 bytes)
                           On linux a floppy disk image can be created by running
                             dd if=/dev/fd0u800 of=image.mgt conv=noerror,sync
                           If /dev/fd0u800 does not exist it can be created with
                             sudo mknod /dev/fd0u800 b 2 120
-    FILE                  A single file to extract from the disk image. To
-                          extract ALL files from the disk image, omit FILE.
+    -t TARGET             An existing directory to write all files to. Defaults
+                          to current directory.
+    -f FILE               A single file inside the disk image.
+    -v                    Verbose output.
+    -n                    Output names of files only.
+    --help                Display this help text.
+    --version             Display the release version of samfile.
+
+  Examples:
+
+    Extract SAM Basic file 'SCREENS' from disk image 'fred27.mgt' and write to
+    file 'SCREENS.basic' as plain text listing:
+
+    $ samfile cat -i fred27.mgt -f SCREENS | samfile basic-to-text > SCREENS.basic
+
+  SAMFile source code:
+    https://github.com/winfreddy88/samfile
 ```
 
 ## Installing
