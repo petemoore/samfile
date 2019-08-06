@@ -11,31 +11,17 @@ import (
 )
 
 func extract(arguments map[string]interface{}) {
-	imageName := arguments["IMAGE"].(string)
-	file := ""
-	extractAllFiles := true
-	if arguments["FILE"] != nil {
-		file = arguments["FILE"].(string)
-		extractAllFiles = false
-	}
+	imageName := arguments["-i"].(string)
 	target := "."
-	if arguments["--dest"] != nil {
-		target = arguments["--dest"].(string)
+	if arguments["-t"] != nil {
+		target = arguments["-t"].(string)
 	}
-	targetExists := false
-	targetIsDir := false
 	fileInfo, statError := os.Stat(target)
-	if statError == nil {
-		targetExists = true
-		targetIsDir = fileInfo.IsDir()
+	if statError != nil {
+		log.Fatalf("Target directory must be an existing directory: %v not found", target)
 	}
-	if extractAllFiles {
-		if !targetExists {
-			log.Fatalf("When extracting all files, TARGET must be an existing directory: %v not found", target)
-		}
-		if !targetIsDir {
-			log.Fatalf("When extracting all files, TARGET must be an existing directory: %v exists, but is not a directory", target)
-		}
+	if !fileInfo.IsDir() {
+		log.Fatalf("Target directory must be an existing directory: %v exists, but is not a directory", target)
 	}
 	diskImage, err := samfile.Load(imageName)
 	if err != nil {
@@ -47,26 +33,14 @@ func extract(arguments map[string]interface{}) {
 		if diskfile.Free() {
 			continue
 		}
-		filename := diskfile.Name.String()
-		if file != filename && !extractAllFiles {
-			continue
-		}
 		fileFound = true
+		filename := diskfile.Name.String()
 		f, err := diskImage.File(filename)
 		if err != nil {
-			// if extracting all files, just warn
-			if extractAllFiles {
-				log.Printf("WARNING: Could not extract %q: %v", filename, err)
-				continue
-			}
-			log.Fatalf("Failed to extract %q from disk image %q: %v", filename, imageName, err)
+			log.Printf("WARNING: Could not extract %q: %v", filename, err)
+			continue
 		}
-		localFile := ""
-		if targetExists && targetIsDir {
-			localFile = filepath.Join(target, strings.Replace(filename, string([]rune{os.PathSeparator}), "#", -1))
-		} else {
-			localFile = target
-		}
+		localFile := filepath.Join(target, strings.Replace(filename, string([]rune{os.PathSeparator}), "#", -1))
 		log.Printf("Saving file %q from disk image %q to file %q", filename, imageName, localFile)
 		err = ioutil.WriteFile(localFile, f.Body, 0666)
 		if err != nil {
@@ -74,10 +48,6 @@ func extract(arguments map[string]interface{}) {
 		}
 	}
 	if !fileFound {
-		if extractAllFiles {
-			log.Printf("WARNING: no files found in disk image %q so nothing extracted.", imageName)
-		} else {
-			log.Fatalf("File %q not found in disk image %q", file, imageName)
-		}
+		log.Printf("WARNING: no files found in disk image %q so nothing extracted.", imageName)
 	}
 }
