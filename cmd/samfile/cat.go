@@ -27,7 +27,6 @@ func cat(arguments map[string]interface{}) {
 		fileFound = true
 		f, err := diskImage.File(filename)
 		if err != nil {
-			// if extracting all files, just warn
 			log.Fatalf("Failed to extract %q from disk image %q: %v", filename, imageName, err)
 		}
 		_, _ = os.Stdout.Write(f.Body)
