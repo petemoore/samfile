@@ -25,12 +25,7 @@ FORMAT_EXPLANATION='should be "<a>.<b>.<c>" OR "<a>.<b>.<c>alpha<d>" where a>=1,
 
 if ! echo "${NEW_VERSION}" | grep -q "${VALID_FORMAT}"; then
   echo "Release version '${NEW_VERSION}' not allowed (${FORMAT_EXPLANATION})" >&2
-  exit 65
-fi
-
-if [ $(git ls-remote -t "${OFFICIAL_GIT_REPO}" "v${NEW_VERSION}" | wc -l) != '0' ]; then
-  echo "Cannot release as version ${NEW_VERSION} since tag v${NEW_VERSION} already exists on ${OFFICIAL_GIT_REPO}" >&2
-  exit 66
+  exit 64
 fi
 
 # Make sure git tag doesn't already exist on remote
@@ -38,7 +33,7 @@ if [ "$(git ls-remote -t "${OFFICIAL_GIT_REPO}" "v${NEW_VERSION}" 2>&1 | wc -l |
   echo "git tag '${NEW_VERSION}' already exists remotely on ${OFFICIAL_GIT_REPO},"
   echo "or there was an error checking whether it existed:"
   git ls-remote -t "${OFFICIAL_GIT_REPO}" "v${NEW_VERSION}"
-  exit 67
+  exit 65
 fi
 
 # Local changes will not be in the release, so they should be dealt with before
@@ -51,7 +46,7 @@ if [ -n "$modified" ]; then
   echo 'revert or stash them!'
   echo
   git status
-  exit 68
+  exit 66
 fi
 
 # ******** If making a NON-alpha release only **********
@@ -65,7 +60,7 @@ if ! echo "${NEW_VERSION}" | grep -q "alpha"; then
     echo "Locally, you are on commit ${localSha}."
     echo "The remote petemoore/samfile repo master branch is on commit ${remoteMasterSha}."
     echo "Make sure to git push/pull so that they both point to the same commit."
-    exit 69
+    exit 67
   fi
 fi
 
