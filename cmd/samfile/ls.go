@@ -7,7 +7,7 @@ import (
 )
 
 func ls(arguments map[string]interface{}) {
-	imageName := arguments["IMAGE"].(string)
+	imageName := arguments["-i"].(string)
 	diskImage, err := samfile.Load(imageName)
 	if err != nil {
 		log.Fatal(err)

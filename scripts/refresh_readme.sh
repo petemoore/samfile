@@ -1,6 +1,6 @@
 #!/bin/bash -eu
 cd "$(dirname "${0}")"/..
-VALID_FORMAT='samfile [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*'
+VALID_FORMAT='samfile .* revision.*'
 TEMP_SAMFILE_HELP="$(mktemp -t samfile-help-text.XXXXXXXXXX)"
 TEMP_SAMFILE_README="$(mktemp -t samfile-readme.XXXXXXXXXX)"
 TEMP_SAMFILE_BINARY="$(mktemp -t samfile.XXXXXXXXXX)"

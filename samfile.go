@@ -358,8 +358,3 @@ func (filename Filename) String() string {
 	}
 	return strings.TrimRight(string(b), " ")
 }
-
-func (fe *FileEntry) File() *File {
-	f := File{}
-	return &f
-}

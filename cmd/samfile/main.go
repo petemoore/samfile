@@ -26,10 +26,14 @@ func main() {
 		log.Fatalf("Error parsing command line arguments: %v", err)
 	}
 	switch {
+	case arguments["cat"]:
+		cat(arguments)
 	case arguments["extract"]:
 		extract(arguments)
 	case arguments["ls"]:
 		ls(arguments)
+	case arguments["basic-to-text"]:
+		basicToText(arguments)
 	default:
 		log.Fatal("Could not find a command to run")
 	}
