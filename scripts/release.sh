@@ -69,13 +69,14 @@ if ! echo "${NEW_VERSION}" | grep -q "alpha"; then
   fi
 fi
 
+git tag -s "v${NEW_VERSION}" -m "Release ${NEW_VERSION}"
+git push "${OFFICIAL_GIT_REPO}" "+refs/tags/v${NEW_VERSION}:refs/tags/v${NEW_VERSION}"
+
 scripts/refresh_readme.sh
 git add README.md
 git commit -m "Refreshed README with samfile output from v${NEW_VERSION}"
-git tag -s "v${NEW_VERSION}" -m "Release ${NEW_VERSION}"
 # only ensure master is updated if it is a non-alpha release
 if ! echo "${NEW_VERSION}" | grep -q "alpha"; then
   git push "${OFFICIAL_GIT_REPO}" "+HEAD:refs/heads/master"
-  git fetch --all
+  git fetch "${OFFICIAL_GIT_REPO}"
 fi
-git push "${OFFICIAL_GIT_REPO}" "+refs/tags/v${NEW_VERSION}:refs/tags/v${NEW_VERSION}"

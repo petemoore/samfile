@@ -14,7 +14,7 @@ utility.
 
 ```
 $ samfile --help
-samfile [ revision: https://github.com/petemoore/samfile/commits/f74ce4a207effa02638feeaa99e992986dd54c7d ]
+samfile 2.0.0 [ revision: https://github.com/petemoore/samfile/commits/b859034fd150737f83a929df761a7ee627a297b8 ]
 
 Manipulate files in SAM Coupé floppy disk images.
 
