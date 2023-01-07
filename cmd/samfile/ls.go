@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"github.com/petemoore/samfile"
+	"github.com/petemoore/samfile/v2"
 )
 
 func ls(arguments map[string]interface{}) {

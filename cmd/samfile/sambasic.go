@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/petemoore/samfile"
+	"github.com/petemoore/samfile/v2"
 )
 
 func basicToText(arguments map[string]interface{}) {

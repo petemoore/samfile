@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/petemoore/samfile"
+	"github.com/petemoore/samfile/v2"
 )
 
 func add(arguments map[string]interface{}) {

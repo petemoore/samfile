@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/petemoore/samfile"
+	"github.com/petemoore/samfile/v2"
 )
 
 func cat(arguments map[string]interface{}) {

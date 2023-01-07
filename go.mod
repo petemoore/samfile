@@ -1,4 +1,4 @@
-module github.com/petemoore/samfile
+module github.com/petemoore/samfile/v2
 
 go 1.19
 
