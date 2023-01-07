@@ -12,6 +12,6 @@ func ls(arguments map[string]interface{}) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dir := diskImage.DirectoryListing()
+	dir := diskImage.DiskJournal()
 	dir.Output()
 }

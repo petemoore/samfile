@@ -14,10 +14,10 @@ func cat(arguments map[string]interface{}) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dir := diskImage.DirectoryListing()
+	dir := diskImage.DiskJournal()
 	fileFound := false
 	for _, diskfile := range dir {
-		if diskfile.Free() {
+		if !diskfile.Used() {
 			continue
 		}
 		filename := diskfile.Name.String()

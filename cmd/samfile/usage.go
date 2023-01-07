@@ -6,14 +6,17 @@ func usage(versionName string) string {
 Manipulate files in SAM Coupé floppy disk images.
 
   Usage:
-    samfile extract -i IMAGE [-t TARGET]
-    samfile cat -i IMAGE -f FILE
-    samfile ls -i IMAGE [-v|-n]
+    samfile add -i IMAGE -f FILE -c -l LOAD_ADDRESS [-e EXECUTION_ADDRESS]
     samfile basic-to-text
+    samfile cat -i IMAGE -f FILE
+    samfile extract -i IMAGE [-t TARGET]
+    samfile ls -i IMAGE
     samfile --help
     samfile --version
 
   Targets:
+    add                   Adds a file from the host file system to the SAM Disk
+                          image file.
     basic-to-text         Read a SAM Basic encoded file from stdin and output
                           plain text listing to stdout.
     cat                   Output a single file from a SAM Disk image file to
@@ -31,8 +34,9 @@ Manipulate files in SAM Coupé floppy disk images.
     -t TARGET             An existing directory to write all files to. Defaults
                           to current directory.
     -f FILE               A single file inside the disk image.
-    -v                    Verbose output.
-    -n                    Output names of files only.
+    -c                    File is a code file.
+    -l LOAD_ADDRESS       Load address of code file on the SAM Disk image.
+    -e EXECUTION_ADDRESS  Execution address of code file on the SAM Disk image.
     --help                Display this help text.
     --version             Display the release version of samfile.
 

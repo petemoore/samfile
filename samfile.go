@@ -1,10 +1,13 @@
+// See https://www.worldofsam.org/products/samdos and https://sam.speccy.cz/systech/sam-coupe_tech-man_v3-0.pdf
+// for details of the disk format
 package samfile
 
 import (
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
+	"runtime/debug"
 	"strings"
 )
 
@@ -19,8 +22,8 @@ type (
 		Type                       FileType
 		Name                       Filename
 		Sectors                    uint16
-		FirstSector                Sector
-		SectorAddressMap           SectorAddressMap
+		FirstSector                *Sector
+		SectorAddressMap           *SectorAddressMap
 		FileTypeInfo               [11]byte
 		StartAddressPage           uint8
 		StartAddressPageOffset     uint16
@@ -28,17 +31,21 @@ type (
 		LengthMod16K               uint16
 		ExecutionAddressPage       uint8
 		ExecutionAddressPageOffset uint16
-		SAMBasicStartLine          uint16
+		SAMBASICStartLine          uint16
+		MGTFlags                   uint8
+		MGTFutureAndPast           [10]byte
+		ReservedA                  [4]byte
+		ReservedB                  [11]byte
 	}
 
 	Filename         [10]byte
 	SectorAddressMap [195]byte
 
-	DirectoryListing [80]*FileEntry
+	DiskJournal [80]*FileEntry
 
 	FilePart struct {
 		Data       [510]byte
-		NextSector Sector
+		NextSector *Sector
 	}
 
 	FileHeader struct {
@@ -50,7 +57,7 @@ type (
 	}
 
 	File struct {
-		Header FileHeader
+		Header *FileHeader
 		Body   []byte
 	}
 
@@ -87,31 +94,53 @@ func (fileHeader *FileHeader) Length() uint32 {
 	return uint32(fileHeader.LengthMod16K&0x3fff) | uint32(fileHeader.Pages)<<14
 }
 
-func (sam SectorAddressMap) String() string {
+func (sam *SectorAddressMap) String() string {
 	out := ""
-	sector := Sector{
-		Track:  4,
-		Sector: 1,
-	}
+	h := make([]byte, hex.EncodedLen(len(sam[:])))
+	hex.Encode(h, sam[:])
+	return out + string(h)
+}
+
+func (sam *SectorAddressMap) filterSectors(used bool) []*Sector {
+	sectors := []*Sector{}
+	track := uint8(4)
+	sector := uint8(1)
 	for _, b := range sam {
 		for j := 0; j < 8; j++ {
-			if b&0x1 == 0x1 {
-				out += "    " + sector.String() + "\n"
+			if (b&0x1 == 1) == used {
+				sectors = append(sectors,
+					&Sector{
+						Track:  track,
+						Sector: sector,
+					},
+				)
 			}
-			sector.Sector++
-			if sector.Sector == 11 {
-				sector.Sector = 1
-				sector.Track++
-				if sector.Track == 80 {
-					sector.Track = 128
+			sector++
+			if sector == 11 {
+				sector = 1
+				track++
+				if track == 80 {
+					track = 128
 				}
 			}
 			b >>= 1
 		}
 	}
-	h := make([]byte, hex.EncodedLen(len(sam[:])))
-	hex.Encode(h, sam[:])
-	return out + string(h)
+	return sectors
+}
+
+func (sam *SectorAddressMap) UsedSectors() []*Sector {
+	return sam.filterSectors(true)
+}
+
+func (sam *SectorAddressMap) FreeSectors() []*Sector {
+	return sam.filterSectors(false)
+}
+
+func (sam *SectorAddressMap) Merge(s *SectorAddressMap) {
+	for i := range sam {
+		sam[i] = sam[i] | s[i]
+	}
 }
 
 func (ft FileType) String() string {
@@ -121,7 +150,7 @@ func (ft FileType) String() string {
 	case FT_ZX_SNAPSHOT:
 		return "ZX Snapshot"
 	case FT_SAM_BASIC:
-		return "SAM Basic"
+		return "SAM BASIC"
 	case FT_NUM_ARRAY:
 		return "Number Array"
 	case FT_STR_ARRAY:
@@ -135,31 +164,37 @@ func (ft FileType) String() string {
 	}
 }
 
-func (sector Sector) String() string {
+func (sector *Sector) String() string {
 	return fmt.Sprintf("Track %v / Sector %v", sector.Track, sector.Sector)
 }
 
-func Load(file string) (*DiskImage, error) {
-	image, err := ioutil.ReadFile(file)
+func Load(filename string) (*DiskImage, error) {
+	image, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, fmt.Errorf("ERROR: Can't load disk2.mgt: %v", err)
+		return nil, fmt.Errorf("ERROR: Can't load disk image %q: %v", filename, err)
 	}
 	d := DiskImage{}
 	copy(d[:], image)
 	return &d, nil
 }
 
-func (i *DiskImage) SectorData(sector Sector) (*SectorData, error) {
+func (di *DiskImage) Save(filename string) error {
+	err := os.WriteFile(filename, di[:], 0400)
+	if err != nil {
+		return fmt.Errorf("ERROR: Can't write disk image %q: %v", filename, err)
+	}
+	return nil
+}
+
+func (i *DiskImage) SectorData(sector *Sector) (*SectorData, error) {
 	if sector.Sector < 1 || sector.Sector > 10 {
+		debug.PrintStack()
 		return nil, fmt.Errorf("Sector out of range: %v", sector.Sector)
 	}
 	if (sector.Track >= 80 && sector.Track < 128) || sector.Track >= 208 {
 		return nil, fmt.Errorf("Track out of range: %v (should be 0-79 or 128-207)", sector.Track)
 	}
-	start := 512 * (20*uint(sector.Track) + uint(sector.Sector) - 1)
-	if sector.Track >= 128 {
-		start -= 255 * 10 * 512
-	}
+	start := sector.Offset()
 	data := SectorData{}
 	copy(data[:], i[start:])
 	return &data, nil
@@ -167,7 +202,7 @@ func (i *DiskImage) SectorData(sector Sector) (*SectorData, error) {
 
 func (data *SectorData) FilePart() *FilePart {
 	fp := FilePart{
-		NextSector: Sector{
+		NextSector: &Sector{
 			Track:  data[510],
 			Sector: data[511],
 		},
@@ -176,13 +211,13 @@ func (data *SectorData) FilePart() *FilePart {
 	return &fp
 }
 
-func (i *DiskImage) DirectoryListing() *DirectoryListing {
-	dl := DirectoryListing{}
+func (i *DiskImage) DiskJournal() *DiskJournal {
+	dl := DiskJournal{}
 	index := 0
 	for track := uint8(0); track < 4; track++ {
 		for sector := uint8(1); sector <= 10; sector++ {
 			sectorData, err := i.SectorData(
-				Sector{
+				&Sector{
 					Track:  track,
 					Sector: sector,
 				},
@@ -202,30 +237,80 @@ func (i *DiskImage) DirectoryListing() *DirectoryListing {
 	return &dl
 }
 
-func FileEntryFrom(data [256]byte) *FileEntry {
+func FileEntryFrom(data [0x100]byte) *FileEntry {
 	fe := FileEntry{
-		Type:    FileType(data[0]),
-		Sectors: uint16(data[11])<<8 | uint16(data[12]),
-		FirstSector: Sector{
-			Track:  data[13],
-			Sector: data[14],
+		Type:    FileType(data[0x00]),
+		Sectors: uint16(data[0x0b])<<8 | uint16(data[0x0c]), // big endian!
+		FirstSector: &Sector{
+			Track:  data[0x0d],
+			Sector: data[0x0e],
 		},
-		StartAddressPage:           data[236],
-		StartAddressPageOffset:     uint16(data[237]) | uint16(data[238])<<8,
-		Pages:                      data[239],
-		LengthMod16K:               uint16(data[240]) | uint16(data[241])<<8,
-		ExecutionAddressPage:       data[242],
-		ExecutionAddressPageOffset: uint16(data[243]) | uint16(data[244])<<8,
-		SAMBasicStartLine:          uint16(data[243]) | uint16(data[244])<<8,
+		MGTFlags:                   data[0xdc],
+		StartAddressPage:           data[0xec],
+		StartAddressPageOffset:     uint16(data[0xed]) | uint16(data[0xee])<<8,
+		Pages:                      data[0xef],
+		LengthMod16K:               uint16(data[0xf0]) | uint16(data[0xf1])<<8,
+		ExecutionAddressPage:       data[0xf2],
+		ExecutionAddressPageOffset: uint16(data[0xf3]) | uint16(data[0xf4])<<8,
+		SAMBASICStartLine:          uint16(data[0xf3]) | uint16(data[0xf4])<<8,
+		SectorAddressMap:           &SectorAddressMap{},
+		Name:                       Filename{},
 	}
-	copy(fe.Name[:], data[1:])
-	copy(fe.SectorAddressMap[:], data[15:])
-	copy(fe.FileTypeInfo[:], data[221:])
+	copy(fe.Name[:], data[0x01:])
+	copy(fe.SectorAddressMap[:], data[0x0f:])
+	copy(fe.MGTFutureAndPast[:], data[0xd2:])
+	copy(fe.FileTypeInfo[:], data[0xdd:])
+	copy(fe.ReservedA[:], data[0xe8:])
+	copy(fe.ReservedB[:], data[0xf5:])
 	return &fe
 }
 
-func (dl *DirectoryListing) Output() {
-	for _, fe := range dl {
+func (fe *FileEntry) Raw() [0x100]byte {
+	raw := [0x100]byte{}
+	raw[0x00] = byte(fe.Type)
+	// raw[1]..raw[10]
+	for i := 0; i < 0x0a; i++ {
+		raw[i+1] = fe.Name[i]
+	}
+	raw[0x0b] = byte((fe.Sectors >> 8) & 0xff) // big
+	raw[0x0c] = byte(fe.Sectors & 0xff)        // endian !!
+	raw[0x0d] = fe.FirstSector.Track
+	raw[0x0e] = fe.FirstSector.Sector
+	// raw[0x0f]..raw[0xd1]
+	for i := 0; i < 0xc3; i++ {
+		raw[i+0x0f] = fe.SectorAddressMap[i]
+	}
+	// raw[0xd2]..raw[0xdb]
+	for i := 0; i < 0x0a; i++ {
+		raw[i+0xd2] = fe.MGTFutureAndPast[i]
+	}
+	raw[0xdc] = fe.MGTFlags
+	// raw[0xdd]..raw[0xe7]
+	for i := 0; i < 0x0b; i++ {
+		raw[i+0xdd] = fe.FileTypeInfo[i]
+	}
+	// raw[0xe8]..raw[0xeb]
+	for i := 0; i < 0x04; i++ {
+		raw[i+0xe8] = fe.ReservedA[i]
+	}
+	raw[0xec] = fe.StartAddressPage
+	raw[0xed] = byte(fe.StartAddressPageOffset & 0xff)
+	raw[0xee] = byte((fe.StartAddressPageOffset >> 8) & 0xff)
+	raw[0xef] = fe.Pages
+	raw[0xf0] = byte(fe.LengthMod16K & 0xff)
+	raw[0xf1] = byte((fe.LengthMod16K) >> 8 & 0xff)
+	raw[0xf2] = fe.ExecutionAddressPage
+	raw[0xf3] = byte(fe.ExecutionAddressPageOffset & 0xff)
+	raw[0xf4] = byte((fe.ExecutionAddressPageOffset) >> 8 & 0xff)
+	// raw[0xf5]..raw[0xff]
+	for i := 0; i < 0x0b; i++ {
+		raw[i+0xf5] = fe.ReservedB[i]
+	}
+	return raw
+}
+
+func (dj *DiskJournal) Output() {
+	for _, fe := range dj {
 		err := fe.Output()
 		if err != nil {
 			log.Printf("ERROR: %v", err)
@@ -233,18 +318,44 @@ func (dl *DirectoryListing) Output() {
 	}
 }
 
-func (fe *FileEntry) Free() bool {
+func (dj *DiskJournal) CombinedSectorMap() *SectorAddressMap {
+	sam := new(SectorAddressMap)
+	for _, fe := range dj {
+		sam.Merge(fe.SectorAddressMap)
+	}
+	return sam
+}
+
+func (dj *DiskJournal) filterFileEntries(used bool) []int {
+	entries := []int{}
+	for i, fe := range dj {
+		if fe.Used() == used {
+			entries = append(entries, i)
+		}
+	}
+	return entries
+}
+
+func (dj *DiskJournal) UsedFileEntries() []int {
+	return dj.filterFileEntries(true)
+}
+
+func (dj *DiskJournal) FreeFileEntries() []int {
+	return dj.filterFileEntries(false)
+}
+
+func (fe *FileEntry) Used() bool {
 	if strings.HasPrefix(fe.Type.String(), "UNKNOWN") {
-		return true
+		return false
 	}
 	if fe.FirstSector.Track == 0 {
-		return true
+		return false
 	}
-	return false
+	return true
 }
 
 func (fe *FileEntry) Output() error {
-	if fe.Free() {
+	if !fe.Used() {
 		return nil
 	}
 	if fe.FirstSector.Track < 4 {
@@ -253,12 +364,9 @@ func (fe *FileEntry) Output() error {
 	defer fmt.Println("")
 	fmt.Printf("%q\n", fe.Name)
 	fmt.Printf("  Type:                              %v\n", fe.Type)
-	// fmt.Printf("  Sectors:                           %v\n", fe.Sectors)
 	if fe.Type == FT_ERASED {
 		return nil
 	}
-	// fmt.Printf("  First Sector:                      %v\n", fe.FirstSector)
-	// fmt.Printf("  Sector Address Map:\n%v\n", fe.SectorAddressMap)
 	switch fe.Type {
 	case FT_NUM_ARRAY:
 		fmt.Printf("  Number Array Info:                 %v\n", fe.FileTypeInfo)
@@ -275,7 +383,7 @@ func (fe *FileEntry) Output() error {
 	fmt.Printf("  Length:                            %v\n", fe.Length())
 	switch fe.Type {
 	case FT_SAM_BASIC:
-		fmt.Printf("  Start Line:                        %v\n", fe.SAMBasicStartLine)
+		fmt.Printf("  Start Line:                        %v\n", fe.SAMBASICStartLine)
 	case FT_CODE:
 		if fe.ExecutionAddressPage != 255 {
 			fmt.Printf("  Execution Address:                 %v\n", fe.ExecutionAddress())
@@ -297,7 +405,7 @@ func (fe *FileEntry) StringArrayVariableOffset() uint32 {
 }
 
 func (fe *FileEntry) ExecutionAddress() uint32 {
-	return uint32(fe.ExecutionAddressPageOffset&0x3fff) | uint32(fe.ExecutionAddressPage&0x1f)<<14
+	return uint32(fe.ExecutionAddressPageOffset&0x3fff) | uint32(fe.ExecutionAddressPage&0x1f+1)<<14
 }
 
 func (fe *FileEntry) StartAddress() uint32 {
@@ -310,10 +418,10 @@ func (fe *FileEntry) Length() uint32 {
 
 func (di *DiskImage) File(filename string) (*File, error) {
 
-	for _, fe := range di.DirectoryListing() {
+	for _, fe := range di.DiskJournal() {
 		if fe.Name.String() == filename {
 			fileLength := fe.Length()
-			raw := make([]byte, fileLength+9, fileLength+9)
+			raw := make([]byte, fileLength+9)
 			sectorData, err := di.SectorData(fe.FirstSector)
 			if err != nil {
 				return nil, err
@@ -333,7 +441,7 @@ func (di *DiskImage) File(filename string) (*File, error) {
 				filepart = sectorData.FilePart()
 			}
 			file := &File{
-				Header: FileHeader{
+				Header: &FileHeader{
 					Type:         FileType(raw[0]),
 					LengthMod16K: uint16(raw[1]) | uint16(raw[2])<<8,
 					PageOffset:   uint16(raw[3]) | uint16(raw[4])<<8,
@@ -357,4 +465,131 @@ func (filename Filename) String() string {
 		b = append(b, k)
 	}
 	return strings.TrimRight(string(b), " ")
+}
+
+func (di *DiskImage) AddCodeFile(name string, data []byte, loadAddress, executionAddress uint32) error {
+	if loadAddress < 1<<14 {
+		return fmt.Errorf("Load address %v of %q is in ROM but must be %v of higher to be loaded into RAM", loadAddress, name, 1<<14)
+	}
+	if int(loadAddress) > 1<<19-len(data) {
+		return fmt.Errorf("Load address %v of %v byte file %q higher than maximum allowed %v", loadAddress, len(data), name, 1<<19-len(data))
+	}
+	if executionAddress > 0 && executionAddress < loadAddress {
+		return fmt.Errorf("Execution address %v of %q lower than load address %v", executionAddress, name, loadAddress)
+	}
+	if int(executionAddress) >= int(loadAddress)+len(data) {
+		return fmt.Errorf("Execution address %v of %q is higher than the memory region it is loaded to (%v to %v)", executionAddress, name, loadAddress, int(loadAddress)+len(data)-1)
+	}
+	fe := &FileEntry{
+		Type:                       FT_CODE,
+		StartAddressPage:           uint8(loadAddress>>14) - 1,
+		StartAddressPageOffset:     uint16(loadAddress & 0x3fff),
+		ExecutionAddressPage:       0xff,
+		ExecutionAddressPageOffset: 0xffff,
+	}
+	if executionAddress > 0 {
+		fe.ExecutionAddressPage = uint8(executionAddress>>14) - 1
+		fe.ExecutionAddressPageOffset = uint16((executionAddress & 0x3fff) | 0x8000)
+	}
+	return di.addFile(
+		name,
+		fe,
+		data,
+	)
+}
+
+func (fe *FileEntry) CreateHeader() *FileHeader {
+	return &FileHeader{
+		Type:         fe.Type,
+		LengthMod16K: fe.LengthMod16K,
+		PageOffset:   fe.StartAddressPageOffset,
+		Pages:        fe.Pages,
+		StartPage:    fe.StartAddressPage,
+	}
+}
+
+func (di *DiskImage) addFile(name string, fe *FileEntry, data []byte) error {
+	dj := di.DiskJournal()
+	freeFileEntries := dj.FreeFileEntries()
+	if len(freeFileEntries) < 1 {
+		return fmt.Errorf("Cannot add file %q to disk; disk already contains maximum number of files (80).", name)
+	}
+	requiredSectorCount := (len(data) + 9 + 509) / 510
+	freeSectors := dj.CombinedSectorMap().FreeSectors()
+	if len(freeSectors) < requiredSectorCount {
+		return fmt.Errorf("Cannot add file %q to disk; not enough space (%v free sectors required but only %v sectors available).", name, requiredSectorCount, len(freeSectors))
+	}
+	fe.Name = *(*[10]byte)([]byte(name + "          "))
+	fe.Sectors = uint16(requiredSectorCount)
+	fe.FirstSector = freeSectors[0]
+	fe.Pages = uint8(len(data) >> 14)
+	fe.LengthMod16K = uint16(len(data) & 0x3fff)
+	fe.SectorAddressMap = &SectorAddressMap{}
+
+	f := &File{
+		Header: fe.CreateHeader(),
+		Body:   data,
+	}
+	raw := f.Raw()
+
+	sd := &SectorData{}
+	for i := 0; i < requiredSectorCount; i++ {
+		if i < requiredSectorCount-1 {
+			copy(sd[:], raw[i*510:(i+1)*510])
+			sd[510] = freeSectors[i+1].Track
+			sd[511] = freeSectors[i+1].Sector
+		} else {
+			sd = &SectorData{} // otherwise sd has non-zero values
+			copy(sd[:], raw[i*510:])
+		}
+		offset, mask := freeSectors[i].SAMMask()
+		fe.SectorAddressMap[offset] |= byte(mask)
+		di.WriteSector(freeSectors[i], sd)
+	}
+	dj[freeFileEntries[0]] = fe
+	di.WriteFileEntry(dj, freeFileEntries[0])
+	return nil
+}
+
+func (di *DiskImage) WriteFileEntry(dj *DiskJournal, index int) {
+	offset := index << 8
+	rawFileEntry := dj[index].Raw()
+	for i, b := range rawFileEntry {
+		di[i+offset] = b
+	}
+}
+
+func (sector *Sector) SAMMask() (offset uint8, mask uint8) {
+	bitOffset := (int(sector.Track)&0x7f)*10 + int(sector.Sector) - 1 + ((int(sector.Track)&0x80)>>7)*800 - 40
+	return uint8(bitOffset >> 3), 1 << bitOffset & 0x07
+}
+
+func (sector *Sector) Offset() int {
+	return int(sector.Track>>7)*5120 + (int(sector.Sector)-1)*512 + int(sector.Track&0x7f)*10240
+}
+
+func (di *DiskImage) WriteSector(sector *Sector, sd *SectorData) {
+	offset := sector.Offset()
+	for i, b := range sd {
+		di[i+offset] = b
+	}
+}
+
+func (fh *FileHeader) Raw() [9]byte {
+	return [9]byte{
+		byte(fh.Type),
+		byte(fh.LengthMod16K),
+		byte(fh.LengthMod16K >> 8),
+		byte(fh.PageOffset),
+		byte(fh.PageOffset >> 8),
+		0,
+		0,
+		fh.Pages,
+		fh.StartPage,
+	}
+}
+
+func (file *File) Raw() []byte {
+	h := file.Header.Raw()
+	return append(h[:], file.Body...)
 }

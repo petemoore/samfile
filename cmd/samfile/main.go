@@ -34,6 +34,8 @@ func main() {
 		ls(arguments)
 	case arguments["basic-to-text"]:
 		basicToText(arguments)
+	case arguments["add"]:
+		add(arguments)
 	default:
 		log.Fatal("Could not find a command to run")
 	}

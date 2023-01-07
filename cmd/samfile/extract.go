@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -27,10 +26,10 @@ func extract(arguments map[string]interface{}) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dir := diskImage.DirectoryListing()
+	dir := diskImage.DiskJournal()
 	fileFound := false
 	for _, diskfile := range dir {
-		if diskfile.Free() {
+		if !diskfile.Used() {
 			continue
 		}
 		fileFound = true
@@ -42,7 +41,7 @@ func extract(arguments map[string]interface{}) {
 		}
 		localFile := filepath.Join(target, strings.Replace(filename, string([]rune{os.PathSeparator}), "#", -1))
 		log.Printf("Saving file %q from disk image %q to file %q", filename, imageName, localFile)
-		err = ioutil.WriteFile(localFile, f.Body, 0666)
+		err = os.WriteFile(localFile, f.Body, 0666)
 		if err != nil {
 			log.Fatalf("Failed to write file %q: %v", localFile, err)
 		}
