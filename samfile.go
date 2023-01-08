@@ -19,23 +19,23 @@ type (
 	SectorData [512]byte
 
 	FileEntry struct {
-		Type                       FileType
-		Name                       Filename
-		Sectors                    uint16
-		FirstSector                *Sector
-		SectorAddressMap           *SectorAddressMap
-		FileTypeInfo               [11]byte
-		StartAddressPage           uint8
-		StartAddressPageOffset     uint16
-		Pages                      uint8
-		LengthMod16K               uint16
-		ExecutionAddressPage       uint8
-		ExecutionAddressPageOffset uint16
-		SAMBASICStartLine          uint16
-		MGTFlags                   uint8
-		MGTFutureAndPast           [10]byte
-		ReservedA                  [4]byte
-		ReservedB                  [11]byte
+		Type                   FileType
+		Name                   Filename
+		Sectors                uint16
+		FirstSector            *Sector
+		SectorAddressMap       *SectorAddressMap
+		FileTypeInfo           [11]byte
+		StartAddressPage       uint8
+		StartAddressPageOffset uint16
+		Pages                  uint8
+		LengthMod16K           uint16
+		ExecutionAddressDiv16K uint8
+		ExecutionAddressMod16K uint16
+		SAMBASICStartLine      uint16
+		MGTFlags               uint8
+		MGTFutureAndPast       [10]byte
+		ReservedA              [4]byte
+		ReservedB              [11]byte
 	}
 
 	Filename         [10]byte
@@ -245,16 +245,16 @@ func FileEntryFrom(data [0x100]byte) *FileEntry {
 			Track:  data[0x0d],
 			Sector: data[0x0e],
 		},
-		MGTFlags:                   data[0xdc],
-		StartAddressPage:           data[0xec],
-		StartAddressPageOffset:     uint16(data[0xed]) | uint16(data[0xee])<<8,
-		Pages:                      data[0xef],
-		LengthMod16K:               uint16(data[0xf0]) | uint16(data[0xf1])<<8,
-		ExecutionAddressPage:       data[0xf2],
-		ExecutionAddressPageOffset: uint16(data[0xf3]) | uint16(data[0xf4])<<8,
-		SAMBASICStartLine:          uint16(data[0xf3]) | uint16(data[0xf4])<<8,
-		SectorAddressMap:           &SectorAddressMap{},
-		Name:                       Filename{},
+		MGTFlags:               data[0xdc],
+		StartAddressPage:       data[0xec],
+		StartAddressPageOffset: uint16(data[0xed]) | uint16(data[0xee])<<8,
+		Pages:                  data[0xef],
+		LengthMod16K:           uint16(data[0xf0]) | uint16(data[0xf1])<<8,
+		ExecutionAddressDiv16K: data[0xf2],
+		ExecutionAddressMod16K: uint16(data[0xf3]) | uint16(data[0xf4])<<8,
+		SAMBASICStartLine:      uint16(data[0xf3]) | uint16(data[0xf4])<<8,
+		SectorAddressMap:       &SectorAddressMap{},
+		Name:                   Filename{},
 	}
 	copy(fe.Name[:], data[0x01:])
 	copy(fe.SectorAddressMap[:], data[0x0f:])
@@ -299,9 +299,9 @@ func (fe *FileEntry) Raw() [0x100]byte {
 	raw[0xef] = fe.Pages
 	raw[0xf0] = byte(fe.LengthMod16K & 0xff)
 	raw[0xf1] = byte((fe.LengthMod16K) >> 8 & 0xff)
-	raw[0xf2] = fe.ExecutionAddressPage
-	raw[0xf3] = byte(fe.ExecutionAddressPageOffset & 0xff)
-	raw[0xf4] = byte((fe.ExecutionAddressPageOffset) >> 8 & 0xff)
+	raw[0xf2] = fe.ExecutionAddressDiv16K
+	raw[0xf3] = byte(fe.ExecutionAddressMod16K & 0xff)
+	raw[0xf4] = byte((fe.ExecutionAddressMod16K) >> 8 & 0xff)
 	// raw[0xf5]..raw[0xff]
 	for i := 0; i < 0x0b; i++ {
 		raw[i+0xf5] = fe.ReservedB[i]
@@ -385,7 +385,7 @@ func (fe *FileEntry) Output() error {
 	case FT_SAM_BASIC:
 		fmt.Printf("  Start Line:                        %v\n", fe.SAMBASICStartLine)
 	case FT_CODE:
-		if fe.ExecutionAddressPage != 255 {
+		if fe.ExecutionAddressDiv16K != 255 {
 			fmt.Printf("  Execution Address:                 %v\n", fe.ExecutionAddress())
 		}
 	}
@@ -405,7 +405,7 @@ func (fe *FileEntry) StringArrayVariableOffset() uint32 {
 }
 
 func (fe *FileEntry) ExecutionAddress() uint32 {
-	return uint32(fe.ExecutionAddressPageOffset&0x3fff) | uint32(fe.ExecutionAddressPage&0x1f+1)<<14
+	return uint32(fe.ExecutionAddressMod16K&0x3fff) | uint32(fe.ExecutionAddressDiv16K&0x1f)<<14
 }
 
 func (fe *FileEntry) StartAddress() uint32 {
@@ -481,15 +481,15 @@ func (di *DiskImage) AddCodeFile(name string, data []byte, loadAddress, executio
 		return fmt.Errorf("Execution address %v of %q is higher than the memory region it is loaded to (%v to %v)", executionAddress, name, loadAddress, int(loadAddress)+len(data)-1)
 	}
 	fe := &FileEntry{
-		Type:                       FT_CODE,
-		StartAddressPage:           uint8(loadAddress>>14) - 1,
-		StartAddressPageOffset:     uint16(loadAddress & 0x3fff),
-		ExecutionAddressPage:       0xff,
-		ExecutionAddressPageOffset: 0xffff,
+		Type:                   FT_CODE,
+		StartAddressPage:       uint8(loadAddress>>14) - 1,
+		StartAddressPageOffset: uint16(loadAddress & 0x3fff),
+		ExecutionAddressDiv16K: 0xff,
+		ExecutionAddressMod16K: 0xffff,
 	}
 	if executionAddress > 0 {
-		fe.ExecutionAddressPage = uint8(executionAddress>>14) - 1
-		fe.ExecutionAddressPageOffset = uint16((executionAddress & 0x3fff) | 0x8000)
+		fe.ExecutionAddressDiv16K = uint8(executionAddress>>14) - 1
+		fe.ExecutionAddressMod16K = uint16((executionAddress & 0x3fff) | 0x8000)
 	}
 	return di.addFile(
 		name,
