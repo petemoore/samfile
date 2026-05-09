@@ -1,6 +1,7 @@
 package samfile
 
 import (
+	"os"
 	"testing"
 )
 
@@ -317,4 +318,37 @@ func TestVerifyReportCarriesDialect(t *testing.T) {
 	if report.Dialect != DialectUnknown {
 		t.Errorf("Dialect = %v; want unknown for empty disk", report.Dialect)
 	}
+}
+
+func TestVerifyOnTestdataCorpus(t *testing.T) {
+	const path = "testdata/ETrackerv1.2.mgt"
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("corpus image not present (%v); skipping", err)
+	}
+	di, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q): %v", path, err)
+	}
+	report := di.Verify()
+	// Smoke shape: Dialect is set to one of the four documented
+	// values, and every Finding's RuleID is a registered rule.
+	switch report.Dialect {
+	case DialectUnknown, DialectSAMDOS1, DialectSAMDOS2, DialectMasterDOS:
+		// ok
+	default:
+		t.Errorf("Dialect = %v; not a documented value", report.Dialect)
+	}
+	knownIDs := make(map[string]bool)
+	for _, r := range Rules() {
+		knownIDs[r.ID] = true
+	}
+	for i, f := range report.Findings {
+		if !knownIDs[f.RuleID] {
+			t.Errorf("Findings[%d].RuleID = %q is not registered", i, f.RuleID)
+		}
+		if f.Citation == "" {
+			t.Errorf("Findings[%d].Citation is empty (rule %s)", i, f.RuleID)
+		}
+	}
+	t.Logf("verify(%s): dialect=%s, %d findings", path, report.Dialect, len(report.Findings))
 }
