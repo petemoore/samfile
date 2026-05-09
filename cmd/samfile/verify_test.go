@@ -72,10 +72,19 @@ func TestVerifyCmdOnEmptyDisk(t *testing.T) {
 }
 
 // TestVerifyCmdOnFatalFinding exercises the fatal-findings exit
-// path in runVerify. Phase 1's only rule is severity
+// path in runVerify. Phase 1's only rule was severity
 // Inconsistency, so this test registers a synthetic fatal rule,
 // then confirms runVerify returns a non-nil error mentioning
 // "fatal".
+//
+// Phase 6 note: the toy disk built below has no "BOOT" signature
+// at T4S1 byte 256, so BOOT-SIGNATURE-AT-256 (fatal) also fires.
+// The test stays correct — it only asserts that runVerify returns
+// an error containing "fatal", not that TEST-FATAL is the only
+// fatal — but the synthetic TEST-FATAL rule is no longer the
+// sole contributor. If a future refactor patches BOOT bytes onto
+// this fixture, the test would silently lose its independent
+// signal for runVerify's fatal-exit path.
 //
 // Caveat: the rule registry is package-private to samfile and
 // exposes no Unregister. We can only call samfile.Register

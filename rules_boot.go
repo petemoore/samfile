@@ -136,7 +136,7 @@ func checkBootEntryPointAt9(ctx *CheckContext) []Finding {
 			RuleID:   "BOOT-ENTRY-POINT-AT-9",
 			Severity: SeverityCosmetic,
 			Location: SlotLocation(slot, fe.Name.String()),
-			Message:  fmt.Sprintf("T4S1 body byte 0 = 0x%02x; expected a real Z80 opcode (0x00 = NOP and 0xFF = unwritten are implausible boot entries)", b),
+			Message:  fmt.Sprintf("T4S1 body byte 0 = 0x%02x (heuristic warn): 0x00 is NOP and 0xFF is the unwritten-byte default — both unusual for real boot-code entry", b),
 			Citation: "rom-disasm:20598",
 		}}
 	}
