@@ -1115,7 +1115,10 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - What: For an image to be bootable on real SAM hardware, some
   directory entry's FirstSector must be (4, 1) so that the ROM
   BOOTEX reads the right sector at `&8000`.
-- Severity: fatal (bootability)
+- Severity: structural (bootability) — demoted from fatal in iteration
+  1: 10.6% of real-world disks (85/800 in the corpus) are non-bootable
+  archives that load correctly under another boot disk; SAMDOS neither
+  rejects nor corrupts them, so the spec's "fatal" tier is too strong.
 - Source authority: ROM
 - Citation: rom-disasm:20473-20598 (`BOOTEX`):
 

@@ -34,13 +34,15 @@ func bootSlot(dj *DiskJournal) (slot int, fe *FileEntry, found bool) {
 // Fires on a single disk-wide finding when no used slot owns T4S1.
 //
 // Note: data-only / archive disks legitimately have no boot file; this
-// rule's "fatal" severity flags non-bootability, not corruption.
-// Phase 7's corpus-validation pass may demote to cosmetic if archive
-// disks dominate the corpus.
+// rule flags non-bootability, not corruption. Iteration 1 corpus
+// evidence (85 fires / 85 disks = 10.6%) confirmed the rule's own
+// caveat: a non-bootable archive disk is neither rejected nor
+// corrupted by SAMDOS once loaded under another boot disk, so the
+// catalog severity is structural (bootability), not fatal.
 func init() {
 	Register(Rule{
 		ID:          "BOOT-OWNER-AT-T4S1",
-		Severity:    SeverityFatal,
+		Severity:    SeverityStructural,
 		Description: "some used directory entry has FirstSector (4, 1) so the disk is bootable on SAM hardware",
 		Citation:    "rom-disasm:20473-20598",
 		Check:       checkBootOwnerAtT4S1,
@@ -53,7 +55,7 @@ func checkBootOwnerAtT4S1(ctx *CheckContext) []Finding {
 	}
 	return []Finding{{
 		RuleID:   "BOOT-OWNER-AT-T4S1",
-		Severity: SeverityFatal,
+		Severity: SeverityStructural,
 		Location: DiskWideLocation(),
 		Message:  "no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware",
 		Citation: "rom-disasm:20473-20598",

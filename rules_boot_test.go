@@ -41,8 +41,8 @@ func TestBootOwnerAtT4S1Negative(t *testing.T) {
 	if len(findings) != 1 || findings[0].RuleID != "BOOT-OWNER-AT-T4S1" {
 		t.Fatalf("got %d findings, first=%+v; want 1 BOOT-OWNER-AT-T4S1", len(findings), findings)
 	}
-	if findings[0].Severity != SeverityFatal {
-		t.Errorf("Severity = %v; want fatal", findings[0].Severity)
+	if findings[0].Severity != SeverityStructural {
+		t.Errorf("Severity = %v; want structural", findings[0].Severity)
 	}
 }
 
