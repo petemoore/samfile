@@ -377,9 +377,11 @@ func checkBodyPageLE31(ctx *CheckContext) []Finding {
 // ----- BODY-BYTES-5-6-CANONICAL-FF -----
 // When ExecutionAddressDiv16K (body[5]) is 0xFF (the "no auto-exec"
 // marker), real ROM SAVE writes 0xFF to body[6] as well — both bytes
-// 0xFF are the canonical "no auto-exec" pair. samfile's writer emits
-// 0x00 for body[6] in that case (samfile.go:1011-1023). Both parse
-// identically, but the convention is FF FF.
+// 0xFF are the canonical "no auto-exec" pair. samfile's writer also
+// emits 0xFF for body[6] in that case via CreateHeader (samfile.go:921-937),
+// so this rule fires only on hand-edited or legacy files where body[5]
+// is 0xFF but body[6] is something else. Both forms parse identically;
+// the rule documents the {FF, FF} convention.
 func init() {
 	Register(Rule{
 		ID:          "BODY-BYTES-5-6-CANONICAL-FF",

@@ -176,7 +176,8 @@ func TestBodyPageOffsetMatchesDirPositive(t *testing.T) {
 
 func TestBodyPageOffsetMatchesDirNegative(t *testing.T) {
 	di, _ := cleanSingleFileDisk(t, "TEST", 100)
-	// Same shape as LengthMod16K, byte 3.
+	// Patching byte 3 (PageOffset lo) disagrees with the dir's 16-bit
+	// StartAddressPageOffset.
 	mutateFirstSectorByte(t, di, 3, 0xAA)
 	findings := checkBodyPageOffsetMatchesDir(&CheckContext{
 		Disk: di, Journal: di.DiskJournal(),
