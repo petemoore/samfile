@@ -14,7 +14,7 @@ import (
 func init() {
 	Register(Rule{
 		ID:          "CROSS-NO-SECTOR-OVERLAP",
-		Severity:    SeverityStructural,
+		Severity:    SeverityInconsistency,
 		Description: "no two used files claim the same data sector",
 		Citation:    "samdos/src/c.s:895-951",
 		Check:       checkCrossNoSectorOverlap,
@@ -42,9 +42,9 @@ func checkCrossNoSectorOverlap(ctx *CheckContext) []Finding {
 		s := sec
 		findings = append(findings, Finding{
 			RuleID:   "CROSS-NO-SECTOR-OVERLAP",
-			Severity: SeverityStructural,
+			Severity: SeverityInconsistency,
 			Location: SectorLocation(claims[0].Slot, claims[0].Name, &s, -1),
-			Message: fmt.Sprintf("sector %v is claimed by %d slots (first: %d %q, second: %d %q)",
+			Message: fmt.Sprintf("sector %v is claimed by %d slots (first: %d %q, second: %d %q) — SAMDOS LOAD reads each chain independently so files load correctly, but SAVE on this disk may refuse free sectors",
 				s, len(claims), claims[0].Slot, claims[0].Name, claims[1].Slot, claims[1].Name),
 			Citation: "samdos/src/c.s:895-951",
 		})

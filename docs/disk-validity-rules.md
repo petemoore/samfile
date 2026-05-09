@@ -627,13 +627,17 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - What: The disk-wide allocation map (bitwise OR of every used
   slot's `SectorAddressMap`) has no overlap — each set bit must
   come from exactly one slot.
-- Severity: structural (demoted from fatal in iteration 1: SAMDOS's
-  chain walk reads next-link bytes 510-511 of each sector and does
-  not consult the SectorAddressMap, so an overlap-bearing file still
-  LOADs correctly; the hazard is at SAVE time when `fnfs` may
-  re-allocate a "free" sector. Corpus evidence: 162,727 fires / 299
-  disks; sample/audio disks and non-SAMDOS-written disks routinely
-  exhibit shared sectors with no load-time corruption.)
+- Severity: inconsistency (demoted from fatal→structural→inconsistency
+  across iterations 1-3: SAMDOS LOAD walks the chain via next-link
+  bytes 510-511 and does not consult the SectorAddressMap
+  (`samdos/src/b.s:104-110`); the disagreement is between the merged
+  SAM-map view ("each sector belongs to one file") and the chain-walk
+  view (the LOAD authority), a "two views of the same fact disagree"
+  pattern. The hazard is at SAVE time when `fnfs` may refuse a "free"
+  sector (`samdos/src/c.s:895-951`). Corpus evidence: 162,727 fires /
+  299 disks (37%); sample/audio disks and non-SAMDOS-written disks
+  routinely exhibit shared sectors with no load-time corruption.
+  Follow-up: per-disk summary mode to collapse the per-sector fan-out.)
 - Source authority: SAMDOS-code
 - Citation: SAMDOS allocator at `samdos/src/c.s:895-951` (`fnfs`):
   it scans the merged `sam` array (built from every dir entry) for
