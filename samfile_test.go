@@ -973,52 +973,79 @@ func TestAddBasicFileStillMirrorsMGTFutureAndPast(t *testing.T) {
 	}
 }
 
-// TestSetStartAddressPageRaw verifies the override mechanism for
-// canonical-SAVE byte parity: SetStartAddressPageRaw must update both
-// the directory entry's StartAddressPage byte (raw[0xEC]) and the
-// matching body-header byte 8.
+// TestSetStartAddressPageUnusedBits verifies the override mechanism
+// for canonical-SAVE byte parity: SetStartAddressPageUnusedBits must
+// set the upper 3 bits of StartAddressPage in both the directory
+// entry (raw[0xEC]) and the matching body-header byte 8 while
+// preserving the low 5 bits (the actual page index derived by
+// AddCodeFile from the load address).
 //
-// The canonical FRED 02 / Defender samdos2 install records 0x7D
-// there (0x60 decorative bits + 0x1D = page 29); AddCodeFile with
-// the same load address derives 0x1D alone. ROM masks the high bits
-// off when reading, so this is byte-parity rather than functional.
-func TestSetStartAddressPageRaw(t *testing.T) {
-	di := NewDiskImage()
-	const loadAddress = uint32(491529) // page 29 + offset 9
-	if err := di.AddCodeFile("samdos2", make([]byte, 10000), loadAddress, 0); err != nil {
-		t.Fatalf("AddCodeFile: %v", err)
+// The canonical FRED 02 / Defender samdos2 install records 0x7D there
+// (= 3<<5 | 0x1D = page 29 with the top two bits set). The bits are
+// unread by ROM and SAMDOS; this method exists for byte-perfect
+// parity with historical disk images.
+func TestSetStartAddressPageUnusedBits(t *testing.T) {
+	cases := []struct {
+		name             string
+		bits             uint8
+		wantStartAddrPg  byte
+	}{
+		{"zero (default)", 0, 0x1D},
+		{"bit 5 only", 1, 0x3D},
+		{"FRED 02 / Defender samdos2 (bits 5+6)", 3, 0x7D},
+		{"bit 7 only", 4, 0x9D},
+		{"all three (0xE0)", 7, 0xFD},
 	}
-
-	feBefore := usedFileEntry(t, di, "samdos2")
-	if feBefore.StartAddressPage != 0x1D {
-		t.Fatalf("StartAddressPage before patch = 0x%02x; want 0x1D (derived from load 491529)", feBefore.StartAddressPage)
-	}
-
-	if err := di.SetStartAddressPageRaw("samdos2", 0x7D); err != nil {
-		t.Fatalf("SetStartAddressPageRaw: %v", err)
-	}
-
-	feAfter := usedFileEntry(t, di, "samdos2")
-	if feAfter.StartAddressPage != 0x7D {
-		t.Errorf("dir entry StartAddressPage after patch = 0x%02x; want 0x7D", feAfter.StartAddressPage)
-	}
-	first := firstSectorBytes(t, di, "samdos2")
-	if first[8] != 0x7D {
-		t.Errorf("body header byte 8 after patch = 0x%02x; want 0x7D", first[8])
-	}
-	// ROM masks to 0x1F, so the decoded Start should be unchanged.
-	if got, want := feAfter.StartAddress(), loadAddress; got != want {
-		t.Errorf("decoded Start after patch = %d; want %d (decorative bits must not affect the address)", got, want)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			di := NewDiskImage()
+			const loadAddress = uint32(491529) // page 29 + offset 9
+			if err := di.AddCodeFile("samdos2", make([]byte, 10000), loadAddress, 0); err != nil {
+				t.Fatalf("AddCodeFile: %v", err)
+			}
+			if got := usedFileEntry(t, di, "samdos2").StartAddressPage; got != 0x1D {
+				t.Fatalf("StartAddressPage before override = 0x%02x; want 0x1D (page 29, no unused bits)", got)
+			}
+			if err := di.SetStartAddressPageUnusedBits("samdos2", c.bits); err != nil {
+				t.Fatalf("SetStartAddressPageUnusedBits: %v", err)
+			}
+			fe := usedFileEntry(t, di, "samdos2")
+			if fe.StartAddressPage != c.wantStartAddrPg {
+				t.Errorf("dir entry StartAddressPage = 0x%02x; want 0x%02x", fe.StartAddressPage, c.wantStartAddrPg)
+			}
+			first := firstSectorBytes(t, di, "samdos2")
+			if first[8] != c.wantStartAddrPg {
+				t.Errorf("body header byte 8 = 0x%02x; want 0x%02x", first[8], c.wantStartAddrPg)
+			}
+			// ROM masks to 0x1F when reading, so decoded Start is unchanged.
+			if got, want := fe.StartAddress(), loadAddress; got != want {
+				t.Errorf("decoded Start after override = %d; want %d (unused bits must not affect the address)", got, want)
+			}
+		})
 	}
 }
 
-// TestSetStartAddressPageRawMissingFile confirms the helper errors
-// cleanly when the named file isn't on disk.
-func TestSetStartAddressPageRawMissingFile(t *testing.T) {
+// TestSetStartAddressPageUnusedBitsOutOfRange confirms that values
+// above 7 are rejected — the API is for 3 bits only.
+func TestSetStartAddressPageUnusedBitsOutOfRange(t *testing.T) {
 	di := NewDiskImage()
-	err := di.SetStartAddressPageRaw("nope", 0x7D)
+	if err := di.AddCodeFile("F", []byte("test"), 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	for _, bad := range []uint8{8, 16, 32, 0x60, 0x7D, 0xFF} {
+		if err := di.SetStartAddressPageUnusedBits("F", bad); err == nil {
+			t.Errorf("SetStartAddressPageUnusedBits(%d) returned nil; want out-of-range error", bad)
+		}
+	}
+}
+
+// TestSetStartAddressPageUnusedBitsMissingFile confirms the helper
+// errors cleanly when the named file isn't on disk.
+func TestSetStartAddressPageUnusedBitsMissingFile(t *testing.T) {
+	di := NewDiskImage()
+	err := di.SetStartAddressPageUnusedBits("nope", 3)
 	if err == nil {
-		t.Fatal("SetStartAddressPageRaw returned nil error for missing file")
+		t.Fatal("SetStartAddressPageUnusedBits returned nil error for missing file")
 	}
 	if !strings.Contains(err.Error(), "nope") {
 		t.Errorf("error message = %q; want it to mention the missing filename", err.Error())

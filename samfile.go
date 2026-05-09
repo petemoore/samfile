@@ -830,24 +830,38 @@ func NewDiskImage() *DiskImage {
 	return &DiskImage{}
 }
 
-// SetStartAddressPageRaw overwrites the StartAddressPage byte for the
-// named file in both the directory entry (raw[0xEC]) and the matching
-// body-header byte 8 in the file's first sector. Returns an error if
-// the file is not present on disk.
+// SetStartAddressPageUnusedBits sets the upper 3 bits (bits 7..5) of
+// the StartAddressPage byte for the named file, preserving the low 5
+// bits (the physical page index). The change is applied to both the
+// directory entry (raw[0xEC]) and the matching body-header byte 8 in
+// the file's first sector. Returns an error if bits > 7 or if the
+// file is not present on disk.
 //
-// AddCodeFile derives StartAddressPage from the load address (low 5
-// bits = physical page index); the high 3 bits are decorative — ROM
-// masks them off when reading. Use this method when byte-perfect
-// parity with the canonical SAM SAVE convention matters: real-SAVE
-// output on FRED 02 / Defender disks records samdos2's StartAddress-
-// Page as 0x7D (0x60 decorative bits + 0x1D page index), whereas
-// AddCodeFile with load address 491529 derives 0x1D alone.
-func (di *DiskImage) SetStartAddressPageRaw(name string, value byte) error {
+// The low 5 bits of StartAddressPage are the page index (0–31) and
+// are derived by AddCodeFile from the load address — this method
+// intentionally cannot disturb them. The high 3 bits are unused: no
+// known consumer in SAM ROM v3, SAMDOS 2, or MasterDOS reads them
+// (ROM's TSURPG paging routine XORs them away via the
+// `XOR / AND 0xE0 / XOR` idiom at rom-disasm:14852-14859; SAMDOS's
+// hsave masks with `AND 0x1F` at h.s:140-143). Real-SAVE output on
+// FRED 02 / Defender disks nonetheless records samdos2's
+// StartAddressPage as 0x7D (= 3<<5 | 0x1D = page 29 with the top
+// two bits set) — those bits are an unmasked leak of the HMPR
+// video-mode flags at the moment SAM ROM's BASIC SAVE wrote the
+// byte (see rom-disasm:22866-22869). This method exists to
+// reproduce that historical accident byte-for-byte when comparing
+// against canonical reference images; if you don't have that
+// constraint, you don't need to call this.
+func (di *DiskImage) SetStartAddressPageUnusedBits(name string, bits uint8) error {
+	if bits > 7 {
+		return fmt.Errorf("StartAddressPage unused bits value %d out of range (0..7)", bits)
+	}
 	dj := di.DiskJournal()
 	for slot, fe := range dj {
 		if !fe.Used() || fe.Name.String() != name {
 			continue
 		}
+		value := (fe.StartAddressPage & 0x1F) | (bits << 5)
 		fe.StartAddressPage = value
 		di.WriteFileEntry(dj, slot)
 		di[fe.FirstSector.Offset()+8] = value
