@@ -187,6 +187,27 @@ func TestBasicLineNumberBENegative(t *testing.T) {
 	}
 }
 
+func TestBasicLineNumberBEAcceptsHighLineNumbers(t *testing.T) {
+	// Iteration 1 SCOPE regression: a line number above 16383 (the
+	// former samfile-specific cap) must not fire. Corpus disks use
+	// 20000/50000/60000 as legitimate "library" / "internal" line
+	// numbers.
+	bf := &sambasic.File{
+		StartLine: 60000,
+		Lines: []sambasic.Line{
+			{Number: 60000, Tokens: []sambasic.Token{sambasic.REM, sambasic.String("hi")}},
+		},
+	}
+	di := NewDiskImage()
+	if err := di.AddBasicFile("DEMO", bf); err != nil {
+		t.Fatalf("AddBasicFile (high line number): %v", err)
+	}
+	findings := checkBasicLineNumberBE(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 0 {
+		t.Errorf("line 60000: %d findings; want 0 (line numbers up to 65535 are legitimate)", len(findings))
+	}
+}
+
 // ----- BASIC-STARTLINE-FF-DISABLES -----
 
 func TestBasicStartLineFFDisablesPositive(t *testing.T) {

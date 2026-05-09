@@ -989,8 +989,10 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
   `sambasic/file.go:21-34` Line.Bytes writes the same way.
 - Dialect: all
 - Test sketch: walk lines from PROG to NVARS; assert each line's
-  length matches its actual size, all line numbers are within
-  documented range (1..16383 for SAM, 1..9999 typical).
+  length matches its actual size, all line numbers are non-zero
+  (1..65535, uint16 BE; widened from 1..16383 in iteration 1 after
+  corpus evidence of legitimate line numbers in the 20000..65000
+  range — `samfile` had a 0x3FFF mask but ROM BASIC does not).
 
 ### BASIC-STARTLINE-FF-DISABLES — ExecutionAddressDiv16K == 0xFF means no auto-RUN
 

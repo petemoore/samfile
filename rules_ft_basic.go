@@ -185,12 +185,24 @@ func checkBasicProgEndSentinel(ctx *CheckContext) []Finding {
 // Walk the program with sambasic.Parse; any parse failure means the
 // big-endian line-number / little-endian length / 0x0D-terminator
 // invariant doesn't hold somewhere. Also check each line number is
-// in 1..16383.
+// non-zero (line 0 doesn't exist in SAM BASIC).
+//
+// Iteration 1 SCOPE: widened from 1..16383 to 1..65535. The 16383
+// cap came from a samfile-specific 0x3FFF mask, but SAM BASIC stores
+// line numbers as 16-bit big-endian — line numbers above 16383 are
+// legitimate. Corpus evidence: 1,098 fires / 385 disks, with several
+// hundred messages reading `line number 20000/50000/60000` — real
+// "library" / "internal" line numbers in published BASIC programs.
+// Line 0 (309 fires) remains structurally invalid: BASIC has no
+// line 0, so it is dropped from the accepted range.
+//
+// Line.Number is `uint16`, so the upper bound 65535 is implicit in
+// the type; only the `== 0` check remains as an explicit guard.
 func init() {
 	Register(Rule{
 		ID:          "BASIC-LINE-NUMBER-BE",
 		Severity:    SeverityStructural,
-		Description: "FT_SAM_BASIC program parses cleanly and every line number is in 1..16383",
+		Description: "FT_SAM_BASIC program parses cleanly and every line number is in 1..65535 (uint16 BE; widened from 1..16383 in iteration 1)",
 		Citation:    "sambasic/parse.go",
 		Check:       checkBasicLineNumberBE,
 	})
@@ -222,11 +234,13 @@ func checkBasicLineNumberBE(ctx *CheckContext) []Finding {
 			return
 		}
 		for _, ln := range bf.Lines {
-			if ln.Number < 1 || ln.Number > 16383 {
+			// Line 0 doesn't exist in SAM BASIC; the upper bound 65535
+			// is implicit in Line.Number's uint16 type.
+			if ln.Number == 0 {
 				findings = append(findings, Finding{
 					RuleID: "BASIC-LINE-NUMBER-BE", Severity: SeverityStructural,
 					Location: SlotLocation(slot, fe.Name.String()),
-					Message:  fmt.Sprintf("BASIC line number %d out of range (1..16383)", ln.Number),
+					Message:  fmt.Sprintf("BASIC line number %d out of range (1..65535)", ln.Number),
 					Citation: "sambasic/parse.go",
 				})
 				return // one finding per slot
@@ -268,11 +282,15 @@ func checkBasicStartLineFFDisables(ctx *CheckContext) []Finding {
 		}
 		if marker == 0x00 {
 			line := fe.SAMBASICStartLine
-			if line == 0 || line == 0xFFFF || line > 16383 {
+			// Iteration 1 SCOPE: line numbers are 16-bit BE; widen the
+			// accepted range from 1..16383 to 1..65534 (excluding 0xFFFF
+			// which is the no-auto-RUN sentinel). Companion to
+			// BASIC-LINE-NUMBER-BE.
+			if line == 0 || line == 0xFFFF {
 				findings = append(findings, Finding{
 					RuleID: "BASIC-STARTLINE-FF-DISABLES", Severity: SeverityStructural,
 					Location: SlotLocation(slot, fe.Name.String()),
-					Message:  fmt.Sprintf("BASIC auto-RUN enabled (dir[0xF2]=0x00) but start-line %d is invalid (1..16383)", line),
+					Message:  fmt.Sprintf("BASIC auto-RUN enabled (dir[0xF2]=0x00) but start-line %d is invalid (1..65534; 0xFFFF disables auto-RUN)", line),
 					Citation: "rom-disasm:22136-22141",
 				})
 			}
