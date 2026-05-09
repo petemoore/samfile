@@ -155,3 +155,92 @@ type CheckContext struct {
 	Journal *DiskJournal
 	Dialect Dialect
 }
+
+// VerifyReport is the result of running Verify on a DiskImage.
+// Findings is the full ordered slice; the helper methods filter
+// without mutating.
+type VerifyReport struct {
+	Dialect  Dialect
+	Findings []Finding
+}
+
+// HasFatal reports whether any finding has severity SeverityFatal.
+func (r VerifyReport) HasFatal() bool {
+	for _, f := range r.Findings {
+		if f.Severity == SeverityFatal {
+			return true
+		}
+	}
+	return false
+}
+
+// HasStructural reports whether any finding has severity
+// SeverityStructural or higher.
+func (r VerifyReport) HasStructural() bool {
+	for _, f := range r.Findings {
+		if f.Severity >= SeverityStructural {
+			return true
+		}
+	}
+	return false
+}
+
+// BySeverity returns findings with exactly the given severity, in
+// registration order.
+func (r VerifyReport) BySeverity(s Severity) []Finding {
+	var out []Finding
+	for _, f := range r.Findings {
+		if f.Severity == s {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// ByRule returns findings produced by the rule with the given ID,
+// in registration order.
+func (r VerifyReport) ByRule(ruleID string) []Finding {
+	var out []Finding
+	for _, f := range r.Findings {
+		if f.RuleID == ruleID {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// FilterOpts controls VerifyReport.Filter. Zero-value fields act
+// as "no constraint".
+type FilterOpts struct {
+	MinSeverity Severity // findings with severity >= MinSeverity pass
+	Rules       []string // if non-empty, only these rule IDs pass
+	Slot        *int     // if non-nil, only findings at this slot pass
+}
+
+// Filter returns findings matching every set constraint in opts, in
+// registration order. An empty FilterOpts returns r.Findings.
+func (r VerifyReport) Filter(opts FilterOpts) []Finding {
+	var out []Finding
+	for _, f := range r.Findings {
+		if f.Severity < opts.MinSeverity {
+			continue
+		}
+		if len(opts.Rules) > 0 {
+			matched := false
+			for _, id := range opts.Rules {
+				if f.RuleID == id {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		if opts.Slot != nil && f.Location.Slot != *opts.Slot {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}

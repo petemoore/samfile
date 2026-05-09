@@ -158,3 +158,42 @@ func TestCheckContextShape(t *testing.T) {
 		t.Errorf("ctx.Dialect = %v; want samdos2", ctx.Dialect)
 	}
 }
+
+func TestVerifyReportHelpers(t *testing.T) {
+	r := VerifyReport{
+		Dialect: DialectSAMDOS2,
+		Findings: []Finding{
+			{RuleID: "A", Severity: SeverityFatal, Location: DiskWideLocation()},
+			{RuleID: "B", Severity: SeverityStructural, Location: SlotLocation(2, "stub")},
+			{RuleID: "C", Severity: SeverityCosmetic, Location: DiskWideLocation()},
+			{RuleID: "B", Severity: SeverityStructural, Location: SlotLocation(3, "IN")},
+		},
+	}
+
+	if !r.HasFatal() {
+		t.Error("HasFatal() = false; want true")
+	}
+	if !r.HasStructural() {
+		t.Error("HasStructural() = false; want true")
+	}
+
+	if got := r.BySeverity(SeverityStructural); len(got) != 2 {
+		t.Errorf("BySeverity(structural) returned %d; want 2", len(got))
+	}
+	if got := r.ByRule("B"); len(got) != 2 {
+		t.Errorf("ByRule(B) returned %d; want 2", len(got))
+	}
+	if got := r.Filter(FilterOpts{MinSeverity: SeverityStructural}); len(got) != 3 {
+		t.Errorf("Filter(min=structural) returned %d; want 3 (B, A, B in registration order)", len(got))
+	}
+	if got := r.Filter(FilterOpts{Rules: []string{"A"}}); len(got) != 1 {
+		t.Errorf("Filter(rules=[A]) returned %d; want 1", len(got))
+	}
+}
+
+func TestVerifyReportHasFatalEmpty(t *testing.T) {
+	r := VerifyReport{}
+	if r.HasFatal() || r.HasStructural() {
+		t.Error("empty report should not report Has*")
+	}
+}
