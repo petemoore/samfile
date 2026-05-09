@@ -1085,18 +1085,24 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - Dialect: all
 - Test sketch: `dir[0xDD] in {1, 2, 3, 4}` for FT_SCREEN.
 
-### SCREEN-LENGTH-MATCHES-MODE — Body length matches mode's screen size
+### SCREEN-LENGTH-MATCHES-MODE — Body length within [min, min+512] for the mode
 
-- What: For FT_SCREEN, the body length should match the documented
-  screen size for the given mode: mode 1 = 6912 bytes, mode 2 = 6912,
-  modes 3-4 = 24576 bytes.
+- What: For FT_SCREEN, the body length must be at least the
+  documented screen-data size for the given mode (mode 1/2 = 6912
+  bytes; mode 3/4 = 24576 bytes) and at most that minimum plus 512
+  bytes of slack. ROM SCREEN$ SAVE canonically appends a
+  palette + sysvars trailer (16 bytes of CLUT + LINE/ATTR/state),
+  so real-world MODE 3/4 screens are commonly 24576+41 = 24617
+  bytes; LOAD SCREEN$ ignores the trailer.
 - Severity: structural
 - Source authority: Tech-Manual
-- Citation: Tech Manual modes table.
+- Citation: Tech Manual L2156 ("spare 8K following a MODE 3/4
+  screen"); corpus empirical 75% of fires are 24576+41 = 24617.
 - Dialect: all
-- Test sketch: cross-reference mode byte and `Length()`.
-- Open questions: exact mode/length mapping; needs Tech Manual
-  cross-check at finalisation time.
+- Test sketch: assert `min <= Length() <= min + 512`, where `min`
+  is 6912 for modes 1/2 and 24576 for modes 3/4. (Iteration 1
+  REWORD: previously required strict equality, which fired on
+  every ROM-SAVE screen with a palette trailer.)
 
 ---
 
