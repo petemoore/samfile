@@ -138,11 +138,18 @@ func checkBodyExecDiv16KMatchesDir(ctx *CheckContext) []Finding {
 // For non-CODE files, dir's ExecutionAddressMod16K holds the auto-RUN
 // line (BASIC) or other type-specific data while body[6] is always
 // 0xFF (CreateHeader's non-FT_CODE default).
+//
+// Iteration 1 SCOPE: skip when body[5] == 0xFF. When auto-exec is
+// disabled at the body level (body[5]==0xFF — the canonical
+// "defer to dir" pattern per BODY-EXEC-DIV16K-MATCHES-DIR), the
+// body's byte 6 (lo of mod16K) is meaningless and any value is
+// allowed. Only fire the comparison when the body genuinely encodes
+// an exec address.
 func init() {
 	Register(Rule{
 		ID:          "BODY-EXEC-MOD16K-LO-MATCHES-DIR",
 		Severity:    SeverityInconsistency,
-		Description: "FT_CODE body-header ExecutionAddressMod16KLo (byte 6) equals low byte of dir-entry ExecutionAddressMod16K",
+		Description: "FT_CODE body-header ExecutionAddressMod16KLo (byte 6) equals low byte of dir-entry ExecutionAddressMod16K (skipped when body[5]==0xFF — body byte 6 is meaningless under the 'defer to dir' pattern)",
 		Citation:    "rom-disasm:22472",
 		Check:       checkBodyExecMod16KLoMatchesDir,
 	})
@@ -156,6 +163,12 @@ func checkBodyExecMod16KLoMatchesDir(ctx *CheckContext) []Finding {
 		}
 		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
 		if err != nil {
+			return
+		}
+		// When body[5]==0xFF, auto-exec is disabled at the body level
+		// and byte 6 (lo of mod16K) is meaningless — its value is not
+		// a mismatch with dir, just an undefined byte. Suppress.
+		if hdr[5] == 0xFF {
 			return
 		}
 		findings = append(findings, bodyDirMirrorFinding(
