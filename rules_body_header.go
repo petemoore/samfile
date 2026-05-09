@@ -53,3 +53,248 @@ func bodyDirMirrorFinding(
 		Citation: citation,
 	}}
 }
+
+// ----- BODY-TYPE-MATCHES-DIR -----
+func init() {
+	Register(Rule{
+		ID:          "BODY-TYPE-MATCHES-DIR",
+		Severity:    SeverityInconsistency,
+		Description: "body header Type byte equals directory-entry Type (attribute bits masked)",
+		Citation:    "samdos/src/c.s:1395-1408",
+		Check:       checkBodyTypeMatchesDir,
+	})
+}
+
+func checkBodyTypeMatchesDir(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return // §1 rules already report the underlying first-sector problem
+		}
+		findings = append(findings, bodyDirMirrorFinding(
+			"BODY-TYPE-MATCHES-DIR", SeverityInconsistency, "samdos/src/c.s:1395-1408", "type",
+			slot, fe.Name.String(),
+			uint8(fe.Type)&0x1F, hdr[0],
+		)...)
+	})
+	return findings
+}
+
+// ----- BODY-EXEC-DIV16K-MATCHES-DIR -----
+func init() {
+	Register(Rule{
+		ID:          "BODY-EXEC-DIV16K-MATCHES-DIR",
+		Severity:    SeverityStructural,
+		Description: "body header ExecutionAddressDiv16K (byte 5) equals dir-entry ExecutionAddressDiv16K",
+		Citation:    "rom-disasm:22471-22484",
+		Check:       checkBodyExecDiv16KMatchesDir,
+	})
+}
+
+func checkBodyExecDiv16KMatchesDir(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		findings = append(findings, bodyDirMirrorFinding(
+			"BODY-EXEC-DIV16K-MATCHES-DIR", SeverityStructural, "rom-disasm:22471-22484", "ExecutionAddressDiv16K",
+			slot, fe.Name.String(),
+			fe.ExecutionAddressDiv16K, hdr[5],
+		)...)
+	})
+	return findings
+}
+
+// ----- BODY-EXEC-MOD16K-LO-MATCHES-DIR -----
+func init() {
+	Register(Rule{
+		ID:          "BODY-EXEC-MOD16K-LO-MATCHES-DIR",
+		Severity:    SeverityInconsistency,
+		Description: "body header ExecutionAddressMod16KLo (byte 6) equals low byte of dir-entry ExecutionAddressMod16K",
+		Citation:    "rom-disasm:22472",
+		Check:       checkBodyExecMod16KLoMatchesDir,
+	})
+}
+
+func checkBodyExecMod16KLoMatchesDir(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		findings = append(findings, bodyDirMirrorFinding(
+			"BODY-EXEC-MOD16K-LO-MATCHES-DIR", SeverityInconsistency, "rom-disasm:22472", "ExecutionAddressMod16KLo",
+			slot, fe.Name.String(),
+			uint8(fe.ExecutionAddressMod16K&0xFF), hdr[6],
+		)...)
+	})
+	return findings
+}
+
+// ----- BODY-PAGES-MATCHES-DIR -----
+func init() {
+	Register(Rule{
+		ID:          "BODY-PAGES-MATCHES-DIR",
+		Severity:    SeverityInconsistency,
+		Description: "body header Pages (byte 7) equals dir-entry Pages",
+		Citation:    "samdos/src/c.s:1376-1379",
+		Check:       checkBodyPagesMatchesDir,
+	})
+}
+
+func checkBodyPagesMatchesDir(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		findings = append(findings, bodyDirMirrorFinding(
+			"BODY-PAGES-MATCHES-DIR", SeverityInconsistency, "samdos/src/c.s:1376-1379", "Pages",
+			slot, fe.Name.String(),
+			fe.Pages, hdr[7],
+		)...)
+	})
+	return findings
+}
+
+// ----- BODY-STARTPAGE-MATCHES-DIR -----
+func init() {
+	Register(Rule{
+		ID:          "BODY-STARTPAGE-MATCHES-DIR",
+		Severity:    SeverityInconsistency,
+		Description: "body header StartPage (byte 8) equals dir-entry StartAddressPage",
+		Citation:    "samdos/src/c.s:1376-1379",
+		Check:       checkBodyStartPageMatchesDir,
+	})
+}
+
+func checkBodyStartPageMatchesDir(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		findings = append(findings, bodyDirMirrorFinding(
+			"BODY-STARTPAGE-MATCHES-DIR", SeverityInconsistency, "samdos/src/c.s:1376-1379", "StartAddressPage",
+			slot, fe.Name.String(),
+			fe.StartAddressPage, hdr[8],
+		)...)
+	})
+	return findings
+}
+
+// ----- BODY-LENGTHMOD16K-MATCHES-DIR -----
+func init() {
+	Register(Rule{
+		ID:          "BODY-LENGTHMOD16K-MATCHES-DIR",
+		Severity:    SeverityInconsistency,
+		Description: "body header LengthMod16K (bytes 1-2 LE) equals dir-entry LengthMod16K",
+		Citation:    "samdos/src/c.s:1376-1379",
+		Check:       checkBodyLengthMod16KMatchesDir,
+	})
+}
+
+func checkBodyLengthMod16KMatchesDir(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		actual := uint16(hdr[1]) | uint16(hdr[2])<<8
+		if actual != fe.LengthMod16K {
+			findings = append(findings, Finding{
+				RuleID:   "BODY-LENGTHMOD16K-MATCHES-DIR",
+				Severity: SeverityInconsistency,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message:  fmt.Sprintf("body LengthMod16K = 0x%04x but dir says 0x%04x", actual, fe.LengthMod16K),
+				Citation: "samdos/src/c.s:1376-1379",
+			})
+		}
+	})
+	return findings
+}
+
+// ----- BODY-PAGEOFFSET-MATCHES-DIR -----
+func init() {
+	Register(Rule{
+		ID:          "BODY-PAGEOFFSET-MATCHES-DIR",
+		Severity:    SeverityInconsistency,
+		Description: "body header PageOffset (bytes 3-4 LE) equals dir-entry StartAddressPageOffset",
+		Citation:    "samdos/src/c.s:1376-1379",
+		Check:       checkBodyPageOffsetMatchesDir,
+	})
+}
+
+func checkBodyPageOffsetMatchesDir(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		actual := uint16(hdr[3]) | uint16(hdr[4])<<8
+		if actual != fe.StartAddressPageOffset {
+			findings = append(findings, Finding{
+				RuleID:   "BODY-PAGEOFFSET-MATCHES-DIR",
+				Severity: SeverityInconsistency,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message:  fmt.Sprintf("body PageOffset = 0x%04x but dir says 0x%04x", actual, fe.StartAddressPageOffset),
+				Citation: "samdos/src/c.s:1376-1379",
+			})
+		}
+	})
+	return findings
+}
+
+// ----- BODY-MIRROR-AT-DIR-D3-DB -----
+func init() {
+	Register(Rule{
+		ID:          "BODY-MIRROR-AT-DIR-D3-DB",
+		Severity:    SeverityInconsistency,
+		Description: "dir bytes 0xD3..0xDB mirror body header bytes 0..8 (and dir byte 0xD2 is 0)",
+		Citation:    "samdos/src/f.s:462-471",
+		Check:       checkBodyMirrorAtDirD3DB,
+	})
+}
+
+func checkBodyMirrorAtDirD3DB(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		// dir byte 0xD2 == 0 (MGTFutureAndPast[0])
+		if fe.MGTFutureAndPast[0] != 0 {
+			findings = append(findings, Finding{
+				RuleID:   "BODY-MIRROR-AT-DIR-D3-DB",
+				Severity: SeverityInconsistency,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message:  fmt.Sprintf("dir byte 0xD2 (MGTFutureAndPast[0]) = 0x%02x but should be 0", fe.MGTFutureAndPast[0]),
+				Citation: "samdos/src/f.s:462-471",
+			})
+		}
+		// dir bytes 0xD3..0xDB (MGTFutureAndPast[1..9]) mirror body bytes 0..8
+		for i := 0; i < 9; i++ {
+			if fe.MGTFutureAndPast[1+i] != hdr[i] {
+				findings = append(findings, Finding{
+					RuleID:   "BODY-MIRROR-AT-DIR-D3-DB",
+					Severity: SeverityInconsistency,
+					Location: SlotLocation(slot, fe.Name.String()),
+					Message: fmt.Sprintf("dir byte 0x%02x (MGTFutureAndPast[%d]) = 0x%02x but body byte %d = 0x%02x",
+						0xD3+i, 1+i, fe.MGTFutureAndPast[1+i], i, hdr[i]),
+					Citation: "samdos/src/f.s:462-471",
+				})
+				return // one finding per slot is enough; the disagreement is the signal
+			}
+		}
+	})
+	return findings
+}
