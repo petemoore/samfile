@@ -22,6 +22,7 @@ func TestSeverityString(t *testing.T) {
 		{SeverityInconsistency, "inconsistency"},
 		{SeverityStructural, "structural"},
 		{SeverityFatal, "fatal"},
+		{Severity(99), "Severity(99)"},
 	}
 	for _, c := range cases {
 		if got := c.sev.String(); got != c.want {
@@ -39,6 +40,7 @@ func TestDialectString(t *testing.T) {
 		{DialectSAMDOS1, "samdos1"},
 		{DialectSAMDOS2, "samdos2"},
 		{DialectMasterDOS, "masterdos"},
+		{Dialect(99), "Dialect(99)"},
 	}
 	for _, c := range cases {
 		if got := c.d.String(); got != c.want {
@@ -60,7 +62,7 @@ func TestLocationDiskWide(t *testing.T) {
 func TestLocationSlot(t *testing.T) {
 	loc := SlotLocation(3, "IN")
 	if loc.IsDiskWide() {
-		t.Errorf("SlotLocation(3).IsDiskWide() = true; want false")
+		t.Errorf(`SlotLocation(3, "IN").IsDiskWide() = true; want false`)
 	}
 	if loc.Slot != 3 {
 		t.Errorf("Slot = %d; want 3", loc.Slot)
@@ -79,8 +81,17 @@ func TestLocationSector(t *testing.T) {
 	if loc.IsDiskWide() {
 		t.Errorf("SectorLocation.IsDiskWide() = true; want false")
 	}
-	if loc.Slot != 2 || loc.Filename != "stub" || loc.Sector != sec || loc.ByteOffset != 8 {
-		t.Errorf("SectorLocation fields wrong; got %+v", loc)
+	if loc.Slot != 2 {
+		t.Errorf("Slot = %d; want 2", loc.Slot)
+	}
+	if loc.Filename != "stub" {
+		t.Errorf("Filename = %q; want %q", loc.Filename, "stub")
+	}
+	if loc.Sector != sec {
+		t.Errorf("Sector pointer mismatch")
+	}
+	if loc.ByteOffset != 8 {
+		t.Errorf("ByteOffset = %d; want 8", loc.ByteOffset)
 	}
 }
 
@@ -101,8 +112,11 @@ func TestFindingShape(t *testing.T) {
 	if f.Location.Slot != 2 || f.Location.Filename != "stub" {
 		t.Errorf("Location fields wrong; got %+v", f.Location)
 	}
-	if f.Message == "" || f.Citation == "" {
-		t.Errorf("Message and Citation should be populated")
+	if f.Message != "expected X, got Y" {
+		t.Errorf("Message = %q; want %q", f.Message, "expected X, got Y")
+	}
+	if f.Citation != "samdos/src/c.s:1306-1343" {
+		t.Errorf("Citation = %q; want %q", f.Citation, "samdos/src/c.s:1306-1343")
 	}
 }
 
@@ -123,6 +137,13 @@ func TestRegisterAndIterate(t *testing.T) {
 	}
 	if got[0].ID != "TEST-A" || got[1].ID != "TEST-B" {
 		t.Errorf("Rules() out of registration order: %+v", got)
+	}
+
+	// Mutating the returned slice must not affect the registry —
+	// Rules() guarantees a defensive copy.
+	got[0].ID = "MUTATED"
+	if Rules()[0].ID != "TEST-A" {
+		t.Error("Rules() returned the underlying slice, not a copy")
 	}
 }
 
@@ -188,6 +209,22 @@ func TestVerifyReportHelpers(t *testing.T) {
 	}
 	if got := r.Filter(FilterOpts{Rules: []string{"A"}}); len(got) != 1 {
 		t.Errorf("Filter(rules=[A]) returned %d; want 1", len(got))
+	}
+
+	// FilterOpts.Slot path (*int sentinel)
+	slot2 := 2
+	if got := r.Filter(FilterOpts{Slot: &slot2}); len(got) != 1 || got[0].Location.Filename != "stub" {
+		t.Errorf("Filter(slot=2) returned %d findings; want 1 (slot 2 = stub)", len(got))
+	}
+
+	// Negative-path: rule that doesn't exist
+	if got := r.ByRule("DOES-NOT-EXIST"); len(got) != 0 {
+		t.Errorf("ByRule(missing) returned %d; want 0", len(got))
+	}
+
+	// Negative-path: severity not present in fixture
+	if got := r.BySeverity(SeverityInconsistency); len(got) != 0 {
+		t.Errorf("BySeverity(inconsistency) returned %d; want 0 (fixture has none)", len(got))
 	}
 }
 
