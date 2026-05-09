@@ -110,3 +110,19 @@ func TestCodeFileTypeInfoEmptyAcceptsAllFF(t *testing.T) {
 		t.Errorf("FileTypeInfo = 0xFF × 11 (ROM SAMDOS-2 convention): %d findings; want 0", len(findings))
 	}
 }
+
+func TestCodeFileTypeInfoEmptyAcceptsAll0x20(t *testing.T) {
+	// Iteration 1 SCOPE: 0x20 added as a third legitimate "unused"
+	// marker (HDR space-fill leakage from ROM HDCLP at
+	// rom-disasm:22070-22074). 99% of corpus FileTypeInfo-mismatch
+	// fires are byte 0x20 — the rule must not fire on this value.
+	di, dj := cleanSingleFileDisk(t, "TEST", 100)
+	for i := range dj[0].FileTypeInfo {
+		dj[0].FileTypeInfo[i] = 0x20
+	}
+	di.WriteFileEntry(dj, 0)
+	findings := checkCodeFileTypeInfoEmpty(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 0 {
+		t.Errorf("FileTypeInfo = 0x20 × 11 (HDR space-fill leakage): %d findings; want 0", len(findings))
+	}
+}

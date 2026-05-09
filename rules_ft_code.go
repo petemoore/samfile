@@ -111,7 +111,7 @@ func checkCodeExecWithinLoadedRange(ctx *CheckContext) []Finding {
 }
 
 // ----- CODE-FILETYPEINFO-EMPTY -----
-// FileTypeInfo (dir 0xDD-0xE7) is unused for FT_CODE. Two conventions
+// FileTypeInfo (dir 0xDD-0xE7) is unused for FT_CODE. Three conventions
 // are observed in the wild:
 //
 //   - 0x00 × 11 — samfile's AddCodeFile leaves the struct zero-init.
@@ -119,16 +119,25 @@ func checkCodeExecWithinLoadedRange(ctx *CheckContext) []Finding {
 //     dir offset 0xDC via HDCLP2 (rom-disasm:22076-22080), which
 //     covers MGTFlags + the entire FileTypeInfo region + the first
 //     two bytes of ReservedA.
+//   - 0x20 — HDR space-fill leakage: ROM `HDCLP` at
+//     rom-disasm:22070-22074 fills 25 bytes of the HDR header buffer
+//     with 0x20 (space) during the names-area initialisation. When
+//     the dir entry is written, FileTypeInfo bytes 0xDD-0xE7 land in
+//     a region the HDR buffer overlaps, and the space-fill bleeds
+//     through for many writers. Empirical: 16,727 of 16,932 corpus
+//     fires (99%) are byte 0x20 — the dominance is striking enough
+//     that 0x20 is plainly a third canonical "unused" marker.
 //
-// Both are legitimate "unused" markers. The rule warns only when a
-// byte is in NEITHER convention — i.e. anything other than 0x00 or
-// 0xFF, which would suggest the slot was once a different file type
-// whose FileTypeInfo bytes weren't cleared on overwrite.
+// All three are legitimate "unused" markers. The rule warns only
+// when a byte is in NONE of these conventions — anything other than
+// 0x00, 0xFF, or 0x20 — which would suggest the slot was once a
+// different file type whose FileTypeInfo bytes weren't cleared on
+// overwrite.
 func init() {
 	Register(Rule{
 		ID:          "CODE-FILETYPEINFO-EMPTY",
 		Severity:    SeverityCosmetic,
-		Description: "FT_CODE file's FileTypeInfo (dir 0xDD-0xE7) is uniformly 0x00 (samfile) or 0xFF (ROM SAMDOS-2) — unused-marker convention",
+		Description: "FT_CODE file's FileTypeInfo (dir 0xDD-0xE7) is uniformly 0x00 (samfile), 0xFF (ROM SAMDOS-2), or 0x20 (HDR space-fill leakage) — unused-marker convention",
 		Citation:    "samfile.go:798-827",
 		Check:       checkCodeFileTypeInfoEmpty,
 	})
@@ -141,12 +150,15 @@ func checkCodeFileTypeInfoEmpty(ctx *CheckContext) []Finding {
 			return
 		}
 		for _, b := range fe.FileTypeInfo {
-			if b != 0x00 && b != 0xFF {
+			// Iteration 1 SCOPE: 0x20 is accepted as a third "unused"
+			// marker (ROM HDCLP names-area space-fill leakage, 99% of
+			// corpus fires).
+			if b != 0x00 && b != 0xFF && b != 0x20 {
 				findings = append(findings, Finding{
 					RuleID:   "CODE-FILETYPEINFO-EMPTY",
 					Severity: SeverityCosmetic,
 					Location: SlotLocation(slot, fe.Name.String()),
-					Message:  fmt.Sprintf("CODE file has 0x%02x in FileTypeInfo (dir 0xDD-0xE7) — neither samfile's 0x00 nor ROM SAVE's 0xFF unused-marker", b),
+					Message:  fmt.Sprintf("CODE file has 0x%02x in FileTypeInfo (dir 0xDD-0xE7) — none of samfile's 0x00, ROM SAVE's 0xFF, or HDR space-fill 0x20", b),
 					Citation: "samfile.go:798-827",
 				})
 				return // one finding per slot

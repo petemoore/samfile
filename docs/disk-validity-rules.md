@@ -895,14 +895,21 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 ### CODE-FILETYPEINFO-EMPTY — Dir 0xDD-0xE7 unused for CODE
 
 - What: For FT_CODE, dir bytes 0xDD-0xE7 (`FileTypeInfo`) are
-  unused. samfile's `AddCodeFile` leaves them at zero.
+  unused. Three conventions are observed:
+  - 0x00 × 11 — samfile's `AddCodeFile` leaves the struct zero-init.
+  - 0xFF × 11 — real ROM SAMDOS-2 SAVE 0xFF-fills via HDCLP2
+    (rom-disasm:22076-22080).
+  - 0x20 — HDR space-fill leakage from `HDCLP` 25-byte
+    names-area fill (rom-disasm:22070-22074); iteration 1 added 0x20
+    after observing 16,727/16,932 (99%) corpus fires on this value.
 - Severity: cosmetic
-- Source authority: samfile-implicit
+- Source authority: samfile-implicit + ROM
 - Citation: `samfile.go:798-827` (`AddCodeFile` does not set
-  `FileTypeInfo`).
+  `FileTypeInfo`); rom-disasm:22070-22080 (HDR space-fill + HDCLP2
+  0xFF-fill).
 - Dialect: all
-- Test sketch: warn if any byte in `dir[0xDD..0xE8]` is non-zero
-  for a CODE file (unlikely; just a sanity check).
+- Test sketch: warn if any byte in `dir[0xDD..0xE8]` is not in
+  {0x00, 0xFF, 0x20} for a CODE file.
 
 ---
 
