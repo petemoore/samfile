@@ -114,3 +114,42 @@ func TestMGTFlagsDialectVanillaIsSilent(t *testing.T) {
 		t.Errorf("mgtFlagsDialect(vanilla MGTFlags) = %v; want unknown", got)
 	}
 }
+
+func TestDetectDialectMasterDOSBothSignalsAgree(t *testing.T) {
+	// Boot file "masterdos2" + extended MGTFlags on a second slot —
+	// two signals both point at MasterDOS.
+	di := NewDiskImage()
+	if err := di.AddCodeFile("masterdos2", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile (boot): %v", err)
+	}
+	if err := di.AddCodeFile("payload", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile (payload): %v", err)
+	}
+	dj := di.DiskJournal()
+	dj[1].MGTFlags = 0x40
+	di.WriteFileEntry(dj, 1)
+
+	if got := DetectDialect(di); got != DialectMasterDOS {
+		t.Errorf("DetectDialect(both signals masterdos) = %v; want masterdos", got)
+	}
+}
+
+func TestDetectDialectConflictReturnsUnknown(t *testing.T) {
+	// Boot file says SAMDOS-2 but a later slot's MGTFlags say
+	// MasterDOS. DetectDialect must collapse to Unknown rather than
+	// pick a winner.
+	di := NewDiskImage()
+	if err := di.AddCodeFile("samdos2", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile (boot): %v", err)
+	}
+	if err := di.AddCodeFile("payload", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile (payload): %v", err)
+	}
+	dj := di.DiskJournal()
+	dj[1].MGTFlags = 0x80
+	di.WriteFileEntry(dj, 1)
+
+	if got := DetectDialect(di); got != DialectUnknown {
+		t.Errorf("DetectDialect(conflict samdos2 vs masterdos) = %v; want unknown", got)
+	}
+}
