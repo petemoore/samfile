@@ -27,5 +27,118 @@ func bootSlot(dj *DiskJournal) (slot int, fe *FileEntry, found bool) {
 	return -1, nil, false
 }
 
-// Ensure fmt is used (will be used by rules added in Task 2).
-var _ = fmt.Sprintf
+// ----- BOOT-OWNER-AT-T4S1 -----
+// For an image to be bootable on real SAM hardware, some directory
+// entry's FirstSector must be (track 4, sector 1) so that the ROM
+// BOOTEX (rom-disasm:20473-20598) reads the right sector at &8000.
+// Fires on a single disk-wide finding when no used slot owns T4S1.
+//
+// Note: data-only / archive disks legitimately have no boot file; this
+// rule's "fatal" severity flags non-bootability, not corruption.
+// Phase 7's corpus-validation pass may demote to cosmetic if archive
+// disks dominate the corpus.
+func init() {
+	Register(Rule{
+		ID:          "BOOT-OWNER-AT-T4S1",
+		Severity:    SeverityFatal,
+		Description: "some used directory entry has FirstSector (4, 1) so the disk is bootable on SAM hardware",
+		Citation:    "rom-disasm:20473-20598",
+		Check:       checkBootOwnerAtT4S1,
+	})
+}
+
+func checkBootOwnerAtT4S1(ctx *CheckContext) []Finding {
+	if _, _, found := bootSlot(ctx.Journal); found {
+		return nil
+	}
+	return []Finding{{
+		RuleID:   "BOOT-OWNER-AT-T4S1",
+		Severity: SeverityFatal,
+		Location: DiskWideLocation(),
+		Message:  "no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware",
+		Citation: "rom-disasm:20473-20598",
+	}}
+}
+
+// ----- BOOT-SIGNATURE-AT-256 -----
+// For ROM BOOTEX to dispatch to the loaded sector, bytes 256-259 of
+// T4S1 must spell "BOOT" — case-insensitively, with bit 7 ignored
+// (the ROM compares (disk_byte XOR expected_byte) AND 0x5F per
+// rom-disasm:20582-20598). Only applies when a boot owner exists;
+// BOOT-OWNER-AT-T4S1 reports the no-owner case separately.
+func init() {
+	Register(Rule{
+		ID:          "BOOT-SIGNATURE-AT-256",
+		Severity:    SeverityFatal,
+		Description: "T4S1 bytes 256-259 spell \"BOOT\" (case-insensitive, bit 7 ignored)",
+		Citation:    "rom-disasm:20582-20598",
+		Check:       checkBootSignatureAt256,
+	})
+}
+
+func checkBootSignatureAt256(ctx *CheckContext) []Finding {
+	slot, fe, found := bootSlot(ctx.Journal)
+	if !found {
+		return nil // BOOT-OWNER-AT-T4S1 reports the underlying issue
+	}
+	sd, err := ctx.Disk.SectorData(fe.FirstSector)
+	if err != nil {
+		return nil // §1 rules report the underlying sector problem
+	}
+	// ROM compares with `XOR expected; AND 0x5F` — 0x5F = 0b01011111
+	// masks bits 5 (case) and 7 (BASIC-keyword high bit) before the
+	// zero check. So we apply the same mask here.
+	expected := [4]byte{'B', 'O', 'O', 'T'}
+	for i := 0; i < 4; i++ {
+		if (sd[256+i]^expected[i])&0x5F != 0 {
+			return []Finding{{
+				RuleID:   "BOOT-SIGNATURE-AT-256",
+				Severity: SeverityFatal,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message:  fmt.Sprintf("T4S1 boot signature mismatch at byte %d: got 0x%02x, expected 0x%02x (masked with 0x5F)", 256+i, sd[256+i], expected[i]),
+				Citation: "rom-disasm:20582-20598",
+			}}
+		}
+	}
+	return nil
+}
+
+// ----- BOOT-ENTRY-POINT-AT-9 -----
+// After signature match, ROM does JP 8009H. The sector buffer is at
+// 0x8000-0x81FF, so 0x8009 is sector-buffer offset 9 = body offset 0
+// (after the 9-byte body header). The byte at body offset 0 must
+// therefore be valid Z80 code. We can't enforce "valid Z80 opcode"
+// precisely from one byte, but 0x00 (NOP — unlikely as the first
+// boot-code byte by design) and 0xFF (unwritten / no-code marker)
+// are useful negative signals. Cosmetic per the catalog's test sketch.
+func init() {
+	Register(Rule{
+		ID:          "BOOT-ENTRY-POINT-AT-9",
+		Severity:    SeverityCosmetic,
+		Description: "T4S1 body byte 0 (sector offset 9) is not 0x00 or 0xFF — a heuristic plausibility check for Z80 boot code",
+		Citation:    "rom-disasm:20598",
+		Check:       checkBootEntryPointAt9,
+	})
+}
+
+func checkBootEntryPointAt9(ctx *CheckContext) []Finding {
+	slot, fe, found := bootSlot(ctx.Journal)
+	if !found {
+		return nil
+	}
+	sd, err := ctx.Disk.SectorData(fe.FirstSector)
+	if err != nil {
+		return nil
+	}
+	b := sd[9]
+	if b == 0x00 || b == 0xFF {
+		return []Finding{{
+			RuleID:   "BOOT-ENTRY-POINT-AT-9",
+			Severity: SeverityCosmetic,
+			Location: SlotLocation(slot, fe.Name.String()),
+			Message:  fmt.Sprintf("T4S1 body byte 0 = 0x%02x; expected a real Z80 opcode (0x00 = NOP and 0xFF = unwritten are implausible boot entries)", b),
+			Citation: "rom-disasm:20598",
+		}}
+	}
+	return nil
+}
