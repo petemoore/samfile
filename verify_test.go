@@ -83,3 +83,25 @@ func TestLocationSector(t *testing.T) {
 		t.Errorf("SectorLocation fields wrong; got %+v", loc)
 	}
 }
+
+func TestFindingShape(t *testing.T) {
+	f := Finding{
+		RuleID:   "TEST-RULE",
+		Severity: SeverityStructural,
+		Location: SlotLocation(2, "stub"),
+		Message:  "expected X, got Y",
+		Citation: "samdos/src/c.s:1306-1343",
+	}
+	if f.RuleID != "TEST-RULE" {
+		t.Errorf("RuleID = %q; want TEST-RULE", f.RuleID)
+	}
+	if f.Severity != SeverityStructural {
+		t.Errorf("Severity = %v; want structural", f.Severity)
+	}
+	if f.Location.Slot != 2 || f.Location.Filename != "stub" {
+		t.Errorf("Location fields wrong; got %+v", f.Location)
+	}
+	if f.Message == "" || f.Citation == "" {
+		t.Errorf("Message and Citation should be populated")
+	}
+}

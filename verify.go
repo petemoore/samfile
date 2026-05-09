@@ -88,3 +88,20 @@ func SectorLocation(slot int, filename string, sector *Sector, byteOffset int) L
 func (loc Location) IsDiskWide() bool {
 	return loc.Slot == -1 && loc.Sector == nil && loc.ByteOffset == -1
 }
+
+// Finding is one specific violation produced by one Rule.
+//
+// Message is the prose summary intended for human readers
+// (default CLI output prints it directly). It should be a
+// single line including the relevant Expected vs Actual
+// values; multi-line context goes in a separate diagnostic.
+//
+// Citation duplicates the parent Rule's citation for easy
+// access without a registry lookup.
+type Finding struct {
+	RuleID   string
+	Severity Severity
+	Location Location
+	Message  string
+	Citation string
+}
