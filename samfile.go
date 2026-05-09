@@ -176,12 +176,24 @@ type (
 	// header (see Length); PageOffset and StartPage together
 	// encode the SAM address the file should be loaded to in REL
 	// PAGE FORM (see Start).
+	//
+	// ExecutionAddressDiv16K and ExecutionAddressMod16KLo mirror
+	// the directory entry's auto-execution-address gate at body-
+	// header bytes 5 and 6. Setting both to 0xFF signals "no
+	// auto-exec" — the convention the SAM ROM's LOAD-CODE path
+	// at rom-disasm:22471-22484 checks to return cleanly after a
+	// load instead of jumping to the file's start address. The
+	// directory entry holds the full 16-bit ExecutionAddressMod16K
+	// at offsets 0xF3-0xF4; only the low byte fits in the body
+	// header, which is what these fields represent.
 	FileHeader struct {
-		Type         FileType
-		LengthMod16K uint16
-		PageOffset   uint16
-		Pages        uint8
-		StartPage    uint8
+		Type                   FileType
+		LengthMod16K           uint16
+		PageOffset             uint16
+		ExecutionAddressDiv16K uint8
+		ExecutionAddressMod16KLo uint8
+		Pages                  uint8
+		StartPage              uint8
 	}
 
 	// File is a complete file as read from disk: the 9-byte
@@ -742,11 +754,13 @@ func (di *DiskImage) File(filename string) (*File, error) {
 			}
 			file := &File{
 				Header: &FileHeader{
-					Type:         FileType(raw[0]),
-					LengthMod16K: uint16(raw[1]) | uint16(raw[2])<<8,
-					PageOffset:   uint16(raw[3]) | uint16(raw[4])<<8,
-					Pages:        raw[7],
-					StartPage:    raw[8] & 0x1f,
+					Type:                     FileType(raw[0]),
+					LengthMod16K:             uint16(raw[1]) | uint16(raw[2])<<8,
+					PageOffset:               uint16(raw[3]) | uint16(raw[4])<<8,
+					ExecutionAddressDiv16K:   raw[5],
+					ExecutionAddressMod16KLo: raw[6],
+					Pages:                    raw[7],
+					StartPage:                raw[8] & 0x1f,
 				},
 				Body: raw[9:],
 			}
@@ -816,6 +830,32 @@ func NewDiskImage() *DiskImage {
 	return &DiskImage{}
 }
 
+// SetStartAddressPageRaw overwrites the StartAddressPage byte for the
+// named file in both the directory entry (raw[0xEC]) and the matching
+// body-header byte 8 in the file's first sector. Returns an error if
+// the file is not present on disk.
+//
+// AddCodeFile derives StartAddressPage from the load address (low 5
+// bits = physical page index); the high 3 bits are decorative — ROM
+// masks them off when reading. Use this method when byte-perfect
+// parity with the canonical SAM SAVE convention matters: real-SAVE
+// output on FRED 02 / Defender disks records samdos2's StartAddress-
+// Page as 0x7D (0x60 decorative bits + 0x1D page index), whereas
+// AddCodeFile with load address 491529 derives 0x1D alone.
+func (di *DiskImage) SetStartAddressPageRaw(name string, value byte) error {
+	dj := di.DiskJournal()
+	for slot, fe := range dj {
+		if !fe.Used() || fe.Name.String() != name {
+			continue
+		}
+		fe.StartAddressPage = value
+		di.WriteFileEntry(dj, slot)
+		di[fe.FirstSector.Offset()+8] = value
+		return nil
+	}
+	return fmt.Errorf("file %v not found", name)
+}
+
 func pageForm3Byte(value uint32) [3]byte {
 	page := byte(value / 16384)
 	offset := uint16(value%16384) | 0x8000
@@ -849,18 +889,8 @@ func (di *DiskImage) AddBasicFile(name string, file *sambasic.File) error {
 	copy(fe.FileTypeInfo[3:6], numend[:])
 	copy(fe.FileTypeInfo[6:9], savars[:])
 
-	pages := uint8(len(body) >> 14)
-	lengthMod16K := uint16(len(body) & 0x3FFF)
-	fe.MGTFutureAndPast[1] = byte(FT_SAM_BASIC)
-	fe.MGTFutureAndPast[2] = byte(lengthMod16K)
-	fe.MGTFutureAndPast[3] = byte(lengthMod16K >> 8)
-	fe.MGTFutureAndPast[4] = 0xD5 // PageOffset lo
-	fe.MGTFutureAndPast[5] = 0x9C // PageOffset hi
-	fe.MGTFutureAndPast[6] = 0xFF
-	fe.MGTFutureAndPast[7] = 0xFF
-	fe.MGTFutureAndPast[8] = pages
-	fe.MGTFutureAndPast[9] = 0x00
-
+	// addFile sets fe.Pages, fe.LengthMod16K, and mirrors the body
+	// header into MGTFutureAndPast — no need to populate either here.
 	return di.addFile(name, fe, body)
 }
 
@@ -870,11 +900,13 @@ func (di *DiskImage) AddBasicFile(name string, file *sambasic.File) error {
 // addFile to construct the on-disk header for a new file.
 func (fe *FileEntry) CreateHeader() *FileHeader {
 	return &FileHeader{
-		Type:         fe.Type,
-		LengthMod16K: fe.LengthMod16K,
-		PageOffset:   fe.StartAddressPageOffset,
-		Pages:        fe.Pages,
-		StartPage:    fe.StartAddressPage,
+		Type:                     fe.Type,
+		LengthMod16K:             fe.LengthMod16K,
+		PageOffset:               fe.StartAddressPageOffset,
+		ExecutionAddressDiv16K:   fe.ExecutionAddressDiv16K,
+		ExecutionAddressMod16KLo: byte(fe.ExecutionAddressMod16K & 0xff),
+		Pages:                    fe.Pages,
+		StartPage:                fe.StartAddressPage,
 	}
 }
 
@@ -901,6 +933,17 @@ func (di *DiskImage) addFile(name string, fe *FileEntry, data []byte) error {
 		Body:   data,
 	}
 	raw := f.Raw()
+
+	// Mirror the 9-byte body header into MGTFutureAndPast[1..9] so
+	// the directory entry's MGT "future and past" region matches the
+	// canonical real-SAVE convention: every byte of the body header
+	// is duplicated in the dir entry. (MGTFutureAndPast[0] is
+	// reserved and stays zero.) Without this mirror an inspector
+	// reading just the dir entry would see all zeros for the body
+	// header bytes that are otherwise authoritatively held there;
+	// real disks saved by ROM SAVE populate this region.
+	header := f.Header.Raw()
+	copy(fe.MGTFutureAndPast[1:10], header[:])
 
 	sd := &SectorData{}
 	for i := 0; i < requiredSectorCount; i++ {
@@ -972,8 +1015,8 @@ func (fh *FileHeader) Raw() [9]byte {
 		byte(fh.LengthMod16K >> 8),
 		byte(fh.PageOffset),
 		byte(fh.PageOffset >> 8),
-		0,
-		0,
+		fh.ExecutionAddressDiv16K,
+		fh.ExecutionAddressMod16KLo,
 		fh.Pages,
 		fh.StartPage,
 	}
