@@ -88,11 +88,21 @@ func checkBodyTypeMatchesDir(ctx *CheckContext) []Finding {
 // (samfile.go:921-927) emits 0xFF for body[5] on every non-CODE
 // file regardless of dir contents. The "mirror" only holds for
 // CODE files where both sides encode the same exec-address.
+//
+// Iteration 1 SCOPE: skip when body[5] == 0xFF. Per the auto-exec
+// gate at rom-disasm:22471-22484, auto-exec is disabled at the body
+// level when body[5] is 0xFF — bytes 5-6 are the canonical
+// "defer to dir" pattern ROM SAVE writes (catalog
+// §BODY-BYTES-5-6-CANONICAL-FF). Whatever dir says in that case is
+// authoritative and not a mismatch. The real-inconsistency cases
+// (`body=N (non-FF), dir=M (FF or different N)`) still fire, e.g.
+// the 727 `body=0x00, dir=0xFF` corpus fires where the body would
+// auto-exec from page 0 even though dir disables auto-exec.
 func init() {
 	Register(Rule{
 		ID:          "BODY-EXEC-DIV16K-MATCHES-DIR",
 		Severity:    SeverityStructural,
-		Description: "FT_CODE body-header ExecutionAddressDiv16K (byte 5) equals dir-entry ExecutionAddressDiv16K",
+		Description: "FT_CODE body-header ExecutionAddressDiv16K (byte 5) equals dir-entry ExecutionAddressDiv16K (skipped when body[5]==0xFF — the canonical 'defer to dir' pattern)",
 		Citation:    "rom-disasm:22471-22484",
 		Check:       checkBodyExecDiv16KMatchesDir,
 	})
@@ -106,6 +116,12 @@ func checkBodyExecDiv16KMatchesDir(ctx *CheckContext) []Finding {
 		}
 		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
 		if err != nil {
+			return
+		}
+		// body[5] == 0xFF is the canonical "defer to dir" pattern that
+		// real ROM SAVE writes; dir is authoritative. Not a real
+		// mismatch regardless of dir's value — suppress.
+		if hdr[5] == 0xFF {
 			return
 		}
 		findings = append(findings, bodyDirMirrorFinding(
