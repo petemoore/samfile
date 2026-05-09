@@ -1,0 +1,5 @@
+# Stray build artefacts at repo root from `go build ./cmd/samfile`
+# invocations during development. The binary's name matches the
+# samfile package name; anchor with leading / so we don't ignore
+# any future samfile/ source subdirectory.
+/samfile

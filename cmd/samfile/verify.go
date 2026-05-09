@@ -55,6 +55,10 @@ func runVerify(imagePath string) error {
 		fmt.Printf("%s (%d):\n", strings.ToUpper(s.String()), len(findings))
 		for _, f := range findings {
 			fmt.Printf("  [%s]", f.RuleID)
+			// TODO(phase 3+): when a Rule uses SectorLocation, render
+			// Sector (track/sector) and ByteOffset here too. Phase 1 has
+			// no SectorLocation users so this formatter only handles
+			// disk-wide and slot-level locations.
 			if !f.Location.IsDiskWide() {
 				fmt.Printf(" slot %d", f.Location.Slot)
 				if f.Location.Filename != "" {

@@ -1,6 +1,13 @@
 package samfile
 
+import "fmt"
+
 // Severity ranks findings by impact, lowest to highest.
+//
+// Severity names are stable public API; the numeric values
+// assigned by iota are NOT — new severities may be inserted
+// between existing ones, shifting integer values. Don't serialise
+// the raw int.
 type Severity int
 
 const (
@@ -24,7 +31,7 @@ func (s Severity) String() string {
 	case SeverityFatal:
 		return "fatal"
 	}
-	return "unknown"
+	return fmt.Sprintf("Severity(%d)", s)
 }
 
 // Dialect identifies which DOS produced the disk. Phase 1 only
@@ -52,7 +59,7 @@ func (d Dialect) String() string {
 	case DialectMasterDOS:
 		return "masterdos"
 	}
-	return "unknown"
+	return fmt.Sprintf("Dialect(%d)", d)
 }
 
 // Location pinpoints a Finding on the disk. Construct one via the
@@ -63,7 +70,7 @@ type Location struct {
 	Slot       int     // -1 if not applicable, else 0..79
 	Sector     *Sector // nil if not applicable
 	ByteOffset int     // -1 if not applicable, else byte offset within Sector
-	Filename   string  // copied from Slot's directory entry when known, for messages
+	Filename   string  // file name from the slot's directory entry, embedded for message formatting; "" when Slot is -1
 }
 
 // DiskWideLocation returns a Location for findings that apply to the
@@ -211,6 +218,12 @@ func (r VerifyReport) ByRule(ruleID string) []Finding {
 
 // FilterOpts controls VerifyReport.Filter. Zero-value fields act
 // as "no constraint".
+//
+// FilterOpts intentionally has no Dialect field: a VerifyReport
+// has a single Dialect for the whole disk, so per-finding
+// dialect filtering would be meaningless. If you need to scope
+// by dialect, do so on the report producer (or pass --dialect
+// on the CLI).
 type FilterOpts struct {
 	MinSeverity Severity // findings with severity >= MinSeverity pass
 	Rules       []string // if non-empty, only these rule IDs pass
