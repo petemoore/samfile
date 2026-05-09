@@ -124,12 +124,25 @@ The gate has two paths:
 1. Requested-exec path (`HDR+HDN+6`): SAVE-time / `LOAD CODE n,...,exec`
    override populated from dir byte 0xF2. If non-FF, take HDLDEX
    immediately.
-2. Loaded-exec path (`HDL+HDN+6`): from the body-header byte 5
-   (SAMDOS's `hd001..` cache → HDL via dschd / hconr). If non-FF, take
+2. Loaded-exec path (`HDL+HDN+6`): populated from SAMDOS's `hd001..`
+   cache, which `gtfle` (c.s:1376-1379) loads from the dir-side
+   9-byte mirror (dir 0xD3-0xDB), then `hconr` (h.s:336-361)
+   reloads from `uifa+*` (also dir-derived). `txhed` (h.s:38-56)
+   then transmits the dir entry into ROM's HDL/HDR area — so the
+   "loaded exec" path is in practice dir-fed, not body-fed.
+   `ldhd` (f.s:494-497) does read 9 bytes from the body via `lbyt`
+   (c.s:557-570) at LOAD time, but `lbyt` returns each byte in `A`
+   without storing it — the call sequence is a skip-past so that
+   subsequent `ldblk` reads start at body byte 9 (payload). The
+   body's leading 9 bytes never feed into HDL. If non-FF, take
    HDLDEX; if FF, RET (no auto-exec).
 
 So the auto-exec is gated on BOTH the directory entry's byte 0xF2 AND
-the body-header's byte 5. Each must be `0xFF` to disable auto-exec.
+the dir-side mirror at 0xD3+5 (the value SAMDOS treats as the
+"loaded exec page"). The body header's byte 5 is decorative on LOAD.
+For "byte-identical to canonical SAVE" purposes the body mirror is
+still worth checking (see BODY-MIRROR-AT-DIR-D3-DB §5), but it's
+not what the ROM auto-exec gate actually reads.
 
 The "low byte of ExecutionAddressMod16K mirrors at body-header byte 6"
 part of PR-12 prose is half-right: body-header bytes 5-6 are the
@@ -660,7 +673,12 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
   PROTECTED bits masked off. (SAMDOS keeps these in sync via
   `svhd` writing the same `hd001` value to dir 0xD3 and body byte
   0; the dir's own type byte is set separately by `ofsm`.)
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from the dir entry — gtfle → uifa → hconr → ROM HDL/HDR via
+  txhed — and the body's first 9 bytes are skipped past by ldhd
+  without being stored; a body↔dir mismatch has zero load-time
+  consequence. See BODY-MIRROR-AT-DIR-D3-DB §5 for the citation
+  chain.)
 - Source authority: SAMDOS-code
 - Citation: `samdos/src/c.s:1395-1408` (`gtfle`-derived `gtfl1`
   block) and `samdos/src/b.s:255` (`hd001:  defb &13`).
@@ -671,7 +689,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 
 - What: Body header `LengthMod16K` (LE 16-bit at bytes 1-2) must
   equal the dir entry's mirrored field at 0xF0-0xF1.
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from dir via gtfle/hconr — see BODY-MIRROR-AT-DIR-D3-DB).
 - Source authority: SAMDOS-code
 - Citation: `samdos/src/c.s:1376-1379` (`gtfle` reads 9 bytes from
   dir+211 into `hd001..page1` — which IS `hd001/hd0b1/hd0d1/.../
@@ -685,7 +704,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 
 - What: Body `PageOffset` (LE 16-bit at bytes 3-4) mirrors dir
   `StartAddressPageOffset` at 0xED-0xEE.
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from dir via gtfle/hconr — see BODY-MIRROR-AT-DIR-D3-DB).
 - Source authority: SAMDOS-code
 - Citation: same as BODY-LENGTHMOD16K-MATCHES-DIR; the 9-byte
   mirror at dir+211 includes bytes 3-4.
@@ -726,7 +746,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 ### BODY-PAGES-MATCHES-DIR — Body byte 7 == dir byte 0xEF
 
 - What: Body `Pages` mirrors dir `Pages` at 0xEF.
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from dir via gtfle/hconr — see BODY-MIRROR-AT-DIR-D3-DB).
 - Source authority: SAMDOS-code
 - Citation: 9-byte mirror at dir+211 (see PR-12 hypothesis #1).
 - Dialect: all
@@ -738,7 +759,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
   Note that only the low 5 bits are functional (page index 0..31);
   bits 5-7 are decorative and may differ between byte-perfect
   ROM-SAVE output and synthetic writers (cf. `sam-stub-audit.md`).
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from dir via gtfle/hconr — see BODY-MIRROR-AT-DIR-D3-DB).
 - Source authority: SAMDOS-code + samfile-implicit
 - Citation: 9-byte mirror at dir+211. samfile's `Start()`
   masks `(StartPage & 0x1F)+1`:
@@ -756,11 +778,31 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - What: SAMDOS keeps a verbatim 9-byte body-header cache at dir
   offset 0xD3-0xDB. See §0 for the verification. Byte 0xD2 is
   unused; expect zero.
-- Severity: inconsistency (writer that omits this still works because
-  SAMDOS re-reads from body on next access, but it deviates from
-  canonical SAVE output)
+- Severity: cosmetic. Canonical SAMDOS SAVE writes both sides
+  (svhd at `samdos/src/f.s:462-471` stores `hd001..page1` to dir
+  0xD3-0xDB AND to the file body's leading 9 bytes via `sbyt`),
+  so the mirror IS a real SAVE-time convention. But body bytes
+  0..8 are unused on LOAD: `ldhd` (`samdos/src/f.s:494-497`)
+  calls `lbyt` (`samdos/src/c.s:557-570`) nine times — `lbyt`
+  returns each body byte in `A` *without storing it anywhere* —
+  so `ldhd` only advances the read pointer past the 9-byte body
+  header so subsequent `ldblk` reads start at body byte 9 (the
+  payload). The fields ROM consumes on LOAD all come from the
+  dir entry: `gtfle` (`samdos/src/c.s:1376-1379`) fills the
+  9-byte cache `hd001..page1` and `uifa+*` from dir 0xD3-0xDB
+  and dir 0xEC-0xF1; `hconr` (`samdos/src/h.s:336-361`) reloads
+  `hd001 / page1 / hd0d1 / pges1 / hd0b1` from `uifa+*` (i.e.
+  dir-derived, NOT from the body); `txhed` (`samdos/src/h.s:38-56`)
+  transmits 48 bytes from `difa` (the dir-entry buffer) into
+  ROM's HDL/HDR area. Body bytes 0..8 never enter ROM's view.
+  A writer that omits the mirror produces a disk that loads
+  identically — and 93% of samdos2-written corpus disks do
+  exactly that. The mirror is worth keeping as a "byte-identical
+  to canonical SAMDOS SAVE output" signal, but it is not an
+  integrity indicator.
 - Source authority: SAMDOS-code
-- Citation: §0, `samdos/src/f.s:462-471` + `c.s:1376-1379`.
+- Citation: §0, `samdos/src/f.s:462-471` + `c.s:1376-1379` +
+  `f.s:494-497` + `c.s:557-570` + `h.s:336-361` + `h.s:38-56`.
 - Dialect: all
 - Test sketch: `dir[0xD2] == 0`; `dir[0xD3..0xDC] == body[0..9]`.
 - Open questions: must `dir[0xD2]` be exactly zero, or merely

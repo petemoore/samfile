@@ -55,10 +55,19 @@ func bodyDirMirrorFinding(
 }
 
 // ----- BODY-TYPE-MATCHES-DIR -----
+// Iteration 2 DEMOTE (inconsistency → cosmetic). The body-header
+// mirror cluster is save-time-only: SAMDOS LOAD reads the dir entry
+// (gtfle c.s:1376-1379 → uifa → hconr h.s:336-361 → ROM HDL/HDR
+// via txhed h.s:38-56), and the body's first 9 bytes are read by
+// ldhd (f.s:494-497) using lbyt (c.s:557-570) — but lbyt returns
+// each byte in A without storing it, so ldhd just skips past the
+// 9-byte body header so payload reads start at body byte 9. The
+// body header never feeds into ROM's view, so a body↔dir mismatch
+// has zero load-time consequence.
 func init() {
 	Register(Rule{
 		ID:          "BODY-TYPE-MATCHES-DIR",
-		Severity:    SeverityInconsistency,
+		Severity:    SeverityCosmetic,
 		Description: "body header Type byte equals directory-entry Type (attribute bits masked)",
 		Citation:    "samdos/src/c.s:1395-1408",
 		Check:       checkBodyTypeMatchesDir,
@@ -73,7 +82,7 @@ func checkBodyTypeMatchesDir(ctx *CheckContext) []Finding {
 			return // §1 rules already report the underlying first-sector problem
 		}
 		findings = append(findings, bodyDirMirrorFinding(
-			"BODY-TYPE-MATCHES-DIR", SeverityInconsistency, "samdos/src/c.s:1395-1408", "type",
+			"BODY-TYPE-MATCHES-DIR", SeverityCosmetic, "samdos/src/c.s:1395-1408", "type",
 			slot, fe.Name.String(),
 			uint8(fe.Type)&0x1F, hdr[0],
 		)...)
@@ -181,10 +190,14 @@ func checkBodyExecMod16KLoMatchesDir(ctx *CheckContext) []Finding {
 }
 
 // ----- BODY-PAGES-MATCHES-DIR -----
+// Iteration 2 DEMOTE (inconsistency → cosmetic). Same family as
+// BODY-TYPE-MATCHES-DIR: body byte 7 is skipped (not stored) by
+// ldhd (f.s:494-497) on LOAD; the dir mirror is what feeds the
+// load path via gtfle/hconr/txhed.
 func init() {
 	Register(Rule{
 		ID:          "BODY-PAGES-MATCHES-DIR",
-		Severity:    SeverityInconsistency,
+		Severity:    SeverityCosmetic,
 		Description: "body header Pages (byte 7) equals dir-entry Pages",
 		Citation:    "samdos/src/c.s:1376-1379",
 		Check:       checkBodyPagesMatchesDir,
@@ -199,7 +212,7 @@ func checkBodyPagesMatchesDir(ctx *CheckContext) []Finding {
 			return
 		}
 		findings = append(findings, bodyDirMirrorFinding(
-			"BODY-PAGES-MATCHES-DIR", SeverityInconsistency, "samdos/src/c.s:1376-1379", "Pages",
+			"BODY-PAGES-MATCHES-DIR", SeverityCosmetic, "samdos/src/c.s:1376-1379", "Pages",
 			slot, fe.Name.String(),
 			fe.Pages, hdr[7],
 		)...)
@@ -208,10 +221,14 @@ func checkBodyPagesMatchesDir(ctx *CheckContext) []Finding {
 }
 
 // ----- BODY-STARTPAGE-MATCHES-DIR -----
+// Iteration 2 DEMOTE (inconsistency → cosmetic). Same family as
+// BODY-TYPE-MATCHES-DIR: body byte 8 is skipped (not stored) by
+// ldhd (f.s:494-497) on LOAD. ROM's StartPage view is loaded from
+// the dir entry via uifa+31 → page1 through hconr (h.s:346-347).
 func init() {
 	Register(Rule{
 		ID:          "BODY-STARTPAGE-MATCHES-DIR",
-		Severity:    SeverityInconsistency,
+		Severity:    SeverityCosmetic,
 		Description: "body header StartPage (byte 8) equals dir-entry StartAddressPage",
 		Citation:    "samdos/src/c.s:1376-1379",
 		Check:       checkBodyStartPageMatchesDir,
@@ -226,7 +243,7 @@ func checkBodyStartPageMatchesDir(ctx *CheckContext) []Finding {
 			return
 		}
 		findings = append(findings, bodyDirMirrorFinding(
-			"BODY-STARTPAGE-MATCHES-DIR", SeverityInconsistency, "samdos/src/c.s:1376-1379", "StartAddressPage",
+			"BODY-STARTPAGE-MATCHES-DIR", SeverityCosmetic, "samdos/src/c.s:1376-1379", "StartAddressPage",
 			slot, fe.Name.String(),
 			fe.StartAddressPage, hdr[8],
 		)...)
@@ -235,10 +252,14 @@ func checkBodyStartPageMatchesDir(ctx *CheckContext) []Finding {
 }
 
 // ----- BODY-LENGTHMOD16K-MATCHES-DIR -----
+// Iteration 2 DEMOTE (inconsistency → cosmetic). Same family as
+// BODY-TYPE-MATCHES-DIR: body bytes 1-2 are skipped (not stored)
+// by ldhd (f.s:494-497) on LOAD; the dir-side LengthMod16K is what
+// the load path uses.
 func init() {
 	Register(Rule{
 		ID:          "BODY-LENGTHMOD16K-MATCHES-DIR",
-		Severity:    SeverityInconsistency,
+		Severity:    SeverityCosmetic,
 		Description: "body header LengthMod16K (bytes 1-2 LE) equals dir-entry LengthMod16K",
 		Citation:    "samdos/src/c.s:1376-1379",
 		Check:       checkBodyLengthMod16KMatchesDir,
@@ -256,7 +277,7 @@ func checkBodyLengthMod16KMatchesDir(ctx *CheckContext) []Finding {
 		if actual != fe.LengthMod16K {
 			findings = append(findings, Finding{
 				RuleID:   "BODY-LENGTHMOD16K-MATCHES-DIR",
-				Severity: SeverityInconsistency,
+				Severity: SeverityCosmetic,
 				Location: SlotLocation(slot, fe.Name.String()),
 				Message:  fmt.Sprintf("body LengthMod16K = 0x%04x but dir says 0x%04x", actual, fe.LengthMod16K),
 				Citation: "samdos/src/c.s:1376-1379",
@@ -267,10 +288,14 @@ func checkBodyLengthMod16KMatchesDir(ctx *CheckContext) []Finding {
 }
 
 // ----- BODY-PAGEOFFSET-MATCHES-DIR -----
+// Iteration 2 DEMOTE (inconsistency → cosmetic). Same family as
+// BODY-TYPE-MATCHES-DIR: body bytes 3-4 are skipped (not stored)
+// by ldhd (f.s:494-497) on LOAD. Dir 0xED-0xEE is what hconr
+// (h.s:349-350) populates hd0d1 from on the load path.
 func init() {
 	Register(Rule{
 		ID:          "BODY-PAGEOFFSET-MATCHES-DIR",
-		Severity:    SeverityInconsistency,
+		Severity:    SeverityCosmetic,
 		Description: "body header PageOffset (bytes 3-4 LE) equals dir-entry StartAddressPageOffset",
 		Citation:    "samdos/src/c.s:1376-1379",
 		Check:       checkBodyPageOffsetMatchesDir,
@@ -288,7 +313,7 @@ func checkBodyPageOffsetMatchesDir(ctx *CheckContext) []Finding {
 		if actual != fe.StartAddressPageOffset {
 			findings = append(findings, Finding{
 				RuleID:   "BODY-PAGEOFFSET-MATCHES-DIR",
-				Severity: SeverityInconsistency,
+				Severity: SeverityCosmetic,
 				Location: SlotLocation(slot, fe.Name.String()),
 				Message:  fmt.Sprintf("body PageOffset = 0x%04x but dir says 0x%04x", actual, fe.StartAddressPageOffset),
 				Citation: "samdos/src/c.s:1376-1379",
@@ -299,10 +324,26 @@ func checkBodyPageOffsetMatchesDir(ctx *CheckContext) []Finding {
 }
 
 // ----- BODY-MIRROR-AT-DIR-D3-DB -----
+// Iteration 2 DEMOTE (inconsistency → cosmetic). svhd (f.s:462-471)
+// writes the same 9 bytes to dir+0xD3 AND to the body header on
+// SAVE, so the mirror IS canonical SAVE output. But on LOAD the
+// body header bytes 0..8 are unused: ldhd (f.s:494-497) calls lbyt
+// (c.s:557-570) which returns each body byte in A *without storing
+// it anywhere* — ldhd simply advances the read pointer past the
+// 9-byte body header so subsequent ldblk reads start at body byte
+// 9 (the payload). Everything ROM sees on LOAD is dir-derived:
+// gtfle (c.s:1376-1379) fills the in-RAM cache and uifa from the
+// dir entry, hconr (h.s:336-361) reloads hd001/page1/hd0d1/pges1/
+// hd0b1 from uifa+* (dir-derived) — not from the body — and txhed
+// (h.s:38-56) transmits 48 bytes from difa (the dir-entry buffer)
+// into ROM's HDL/HDR area. So a body↔dir mismatch in bytes 0..8
+// has zero load-time consequence; only the dir side feeds into the
+// load path. 93% of samdos2-written disks omit the mirror, which
+// is irreconcilable with "buggy writer" framing.
 func init() {
 	Register(Rule{
 		ID:          "BODY-MIRROR-AT-DIR-D3-DB",
-		Severity:    SeverityInconsistency,
+		Severity:    SeverityCosmetic,
 		Description: "dir bytes 0xD3..0xDB mirror body header bytes 0..8 (and dir byte 0xD2 is 0)",
 		Citation:    "samdos/src/f.s:462-471",
 		Check:       checkBodyMirrorAtDirD3DB,
@@ -320,7 +361,7 @@ func checkBodyMirrorAtDirD3DB(ctx *CheckContext) []Finding {
 		if fe.MGTFutureAndPast[0] != 0 {
 			findings = append(findings, Finding{
 				RuleID:   "BODY-MIRROR-AT-DIR-D3-DB",
-				Severity: SeverityInconsistency,
+				Severity: SeverityCosmetic,
 				Location: SlotLocation(slot, fe.Name.String()),
 				Message:  fmt.Sprintf("dir byte 0xD2 (MGTFutureAndPast[0]) = 0x%02x but should be 0", fe.MGTFutureAndPast[0]),
 				Citation: "samdos/src/f.s:462-471",
@@ -331,7 +372,7 @@ func checkBodyMirrorAtDirD3DB(ctx *CheckContext) []Finding {
 			if fe.MGTFutureAndPast[1+i] != hdr[i] {
 				findings = append(findings, Finding{
 					RuleID:   "BODY-MIRROR-AT-DIR-D3-DB",
-					Severity: SeverityInconsistency,
+					Severity: SeverityCosmetic,
 					Location: SlotLocation(slot, fe.Name.String()),
 					Message: fmt.Sprintf("dir byte 0x%02x (MGTFutureAndPast[%d]) = 0x%02x but body byte %d = 0x%02x",
 						0xD3+i, 1+i, fe.MGTFutureAndPast[1+i], i, hdr[i]),
