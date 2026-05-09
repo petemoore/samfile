@@ -187,13 +187,6 @@ func checkDirFirstSectorValid(ctx *CheckContext) []Finding {
 }
 
 // ----- DIR-SECTORS-MATCHES-CHAIN -----
-// This rule walks each used slot's chain and compares the visited
-// count to fe.Sectors. The walk is bounded by 1560 steps and uses the
-// same single-step iteration pattern as trackSectorRefs / walkChain.
-//
-// Because walkChain has not yet landed (Task 4), this rule uses an
-// inline walk to stay self-contained. Once Task 4 introduces walkChain,
-// this rule's Check function can switch to it; that's a Task 4 follow-up.
 func init() {
 	Register(Rule{
 		ID:          "DIR-SECTORS-MATCHES-CHAIN",
@@ -207,21 +200,8 @@ func init() {
 func checkDirSectorsMatchesChain(ctx *CheckContext) []Finding {
 	var findings []Finding
 	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
-		// Inline minimal walk: count sectors until (0,0) or 1560 cap.
-		var count uint16
-		cur := fe.FirstSector
-		for steps := 0; steps < 1560 && cur != nil; steps++ {
-			count++
-			sd, err := ctx.Disk.SectorData(cur)
-			if err != nil {
-				break
-			}
-			fp := sd.FilePart()
-			if fp.NextSector.Track == 0 && fp.NextSector.Sector == 0 {
-				break
-			}
-			cur = fp.NextSector
-		}
+		result := walkChain(ctx.Disk, fe.FirstSector)
+		count := uint16(len(result.Steps))
 		if count != fe.Sectors {
 			findings = append(findings, Finding{
 				RuleID:   "DIR-SECTORS-MATCHES-CHAIN",
@@ -294,19 +274,9 @@ func checkDirSectorsNonzero(ctx *CheckContext) []Finding {
 }
 
 // ----- DIR-SAM-WITHIN-CAPACITY -----
-// SectorAddressMap is 195 bytes = 1560 bits. Disk capacity is 1560
-// data sectors. So bits beyond bit-1559 must be zero. Bit-1559 is
-// the high bit of byte 194 (bit 7 of byte 194). The rule is: bits
-// 1560..1567 (bits 0..7 of a notional byte 195) cannot exist in the
-// 195-byte array — already enforced by length. So the only check is
-// inside byte 194: bits beyond bit 7 of byte 194... wait, all 8 bits
-// of byte 194 ARE in range (bits 1552-1559). So the catalog's "top 3
-// bits beyond bit 1559 are clear" wording is about WHICH disks have
-// the 1560 bits; if there were a byte 195 it'd be the overflow.
-//
-// Re-reading the catalog: "byte 194 & 0xE0 == 0 (top 3 bits beyond
-// bit 1559 are clear)". So the rule treats the top 3 bits of byte
-// 194 as the overflow zone. Implement literally per the catalog.
+// 195 bytes × 8 = 1560 bits matches the disk's data-sector count
+// exactly; the catalog's test sketch checks byte 194 & 0xE0 == 0
+// (top 3 bits of byte 194), per Tech Manual L4405-4406.
 func init() {
 	Register(Rule{
 		ID:          "DIR-SAM-WITHIN-CAPACITY",

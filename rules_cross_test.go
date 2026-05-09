@@ -42,10 +42,10 @@ func TestCrossNoSectorOverlapNegative(t *testing.T) {
 func TestCrossNoDuplicateNamesPositive(t *testing.T) {
 	di := NewDiskImage()
 	if err := di.AddCodeFile("A", make([]byte, 100), 0x8000, 0); err != nil {
-		t.Fatalf(": %v", err)
+		t.Fatalf("AddCodeFile A: %v", err)
 	}
 	if err := di.AddCodeFile("B", make([]byte, 100), 0x8000, 0); err != nil {
-		t.Fatalf(": %v", err)
+		t.Fatalf("AddCodeFile B: %v", err)
 	}
 	findings := checkCrossNoDuplicateNames(&CheckContext{
 		Disk: di, Journal: di.DiskJournal(),
@@ -58,10 +58,10 @@ func TestCrossNoDuplicateNamesPositive(t *testing.T) {
 func TestCrossNoDuplicateNamesNegative(t *testing.T) {
 	di := NewDiskImage()
 	if err := di.AddCodeFile("A", make([]byte, 100), 0x8000, 0); err != nil {
-		t.Fatalf(": %v", err)
+		t.Fatalf("AddCodeFile A: %v", err)
 	}
 	if err := di.AddCodeFile("B", make([]byte, 100), 0x8000, 0); err != nil {
-		t.Fatalf(": %v", err)
+		t.Fatalf("AddCodeFile B: %v", err)
 	}
 	dj := di.DiskJournal()
 	// Rename slot 1 to "A" so it duplicates slot 0.
