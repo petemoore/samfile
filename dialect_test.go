@@ -94,11 +94,13 @@ func TestDetectDialectMasterDOSByMGTFlags(t *testing.T) {
 }
 
 func TestMGTFlagsDialectVanillaIsSilent(t *testing.T) {
-	// A disk where every used slot has MGTFlags in {0x00, 0x20}
-	// (vanilla SAMDOS-2) yields no opinion from mgtFlagsDialect.
-	// Slot 0 keeps AddCodeFile's MGTFlags=0x00 default — the CODE
-	// convention. Slot 1 is patched to MGTFlags=0x20 to stand in for
-	// a BASIC file (cheaper than constructing a real tokenised body).
+	// A disk where every used slot has MGTFlags in {0x00, 0x20, 0xFF}
+	// — the SAMDOS-2 set — yields no opinion from mgtFlagsDialect.
+	// Slot 0 keeps AddCodeFile's MGTFlags=0x00 default (samfile-built
+	// CODE convention). Slot 1 is patched to 0x20 to stand in for a
+	// BASIC file. Slot 2 is patched to 0xFF to stand in for a
+	// real-SAMDOS-2 CODE file (the HDCLP2 0xFF-fill from rom-disasm
+	// L22076-22080, observed on the M0 boot disk's slot-4 OUT entry).
 	di := NewDiskImage()
 	if err := di.AddCodeFile("CODE", []byte{0xC9}, 0x8000, 0); err != nil {
 		t.Fatalf("AddCodeFile (CODE, MGTFlags=0): %v", err)
@@ -106,12 +108,40 @@ func TestMGTFlagsDialectVanillaIsSilent(t *testing.T) {
 	if err := di.AddCodeFile("BASIC", []byte{0xC9}, 0x8000, 0); err != nil {
 		t.Fatalf("AddCodeFile (BASIC stub): %v", err)
 	}
+	if err := di.AddCodeFile("ROMSAVE", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile (ROMSAVE stub): %v", err)
+	}
 	dj := di.DiskJournal()
 	dj[1].MGTFlags = 0x20
 	di.WriteFileEntry(dj, 1)
+	dj[2].MGTFlags = 0xff
+	di.WriteFileEntry(dj, 2)
 
 	if got := mgtFlagsDialect(di.DiskJournal()); got != DialectUnknown {
 		t.Errorf("mgtFlagsDialect(vanilla MGTFlags) = %v; want unknown", got)
+	}
+}
+
+func TestDetectDialectSamdos2WithRomSaveMGTFlags(t *testing.T) {
+	// Regression for the M0 boot disk scenario: a SAMDOS-2 boot file
+	// at T4S1 plus a real-ROM-SAVE CODE file with MGTFlags=0xFF must
+	// detect as SAMDOS-2, not Unknown. Before the SAMDOS-2 set was
+	// widened to include 0xFF, mgtFlagsDialect mistook the HDCLP2
+	// 0xFF-fill (rom-disasm L22076-22080) for a MasterDOS attribute
+	// bit and collapsed the report to Unknown.
+	di := NewDiskImage()
+	if err := di.AddCodeFile("samdos2", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile (samdos2 boot): %v", err)
+	}
+	if err := di.AddCodeFile("OUT", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile (OUT): %v", err)
+	}
+	dj := di.DiskJournal()
+	dj[1].MGTFlags = 0xff
+	di.WriteFileEntry(dj, 1)
+
+	if got := DetectDialect(di); got != DialectSAMDOS2 {
+		t.Errorf("DetectDialect(samdos2 + 0xFF MGTFlags) = %v; want samdos2", got)
 	}
 }
 

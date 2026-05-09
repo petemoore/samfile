@@ -96,23 +96,40 @@ func bootFileDialect(dj *DiskJournal) Dialect {
 	return DialectUnknown
 }
 
-// mgtFlagsDialect scans every used slot's MGTFlags. A bit outside the
-// SAMDOS-2 set {0x00, 0x20} signals MasterDOS (catalog:
-// DIALECT-MASTERDOS-MGTFLAGS). Real-disk observation: MasterDOS sets
-// per-file attribute bits beyond 0x20 to track its own metadata,
-// while SAMDOS-2 leaves MGTFlags at either 0x00 (CODE) or 0x20 (BASIC).
-// Returns DialectUnknown when every used slot's MGTFlags is in the
-// SAMDOS-2 set, including the trivial empty-disk case.
+// mgtFlagsDialect scans every used slot's MGTFlags. A value outside
+// the SAMDOS-2 set {0x00, 0x20, 0xFF} signals MasterDOS (catalog:
+// DIALECT-MASTERDOS-MGTFLAGS). Returns DialectUnknown when every used
+// slot's MGTFlags is in the SAMDOS-2 set, including the trivial
+// empty-disk case.
+//
+// The three SAMDOS-2 values cover all known writer conventions:
+//
+//   - 0xFF — what ROM SAMDOS-2 SAVE writes by default. The 14-byte
+//     0xFF-fill loop at HDCLP2 (rom-disasm L22076-22080) starts at
+//     dir offset 0xDC, which is the MGTFlags byte. Real-SAVE CODE
+//     files therefore retain 0xFF; observed on the M0 boot disk's
+//     slot-4 OUT file.
+//   - 0x20 — what ROM SAMDOS-2 BASIC-SAVE overwrites it to after the
+//     HDCLP2 fill (catalog BASIC-MGTFLAGS-20). The "MGT use only"
+//     marker bit; Tech Manual L4369.
+//   - 0x00 — what samfile.AddCodeFile leaves it at (Go struct
+//     zero-init). Not what real ROM SAVE produces, but the
+//     convention every other samfile-built CODE file follows.
+//
+// MasterDOS sets per-file attribute bits in MGTFlags to track its
+// own metadata. The exact bit semantics are undocumented in our
+// corpus (catalog §13 DIALECT-MASTERDOS-MGTFLAGS), so we treat
+// anything outside the SAMDOS-2 set as a MasterDOS signal rather
+// than checking specific bit patterns.
 func mgtFlagsDialect(dj *DiskJournal) Dialect {
-	// samdos2Mask covers every bit except 0x20 — the only MGTFlags bit
-	// SAMDOS-2 ever sets (on BASIC files). A MGTFlags value that
-	// touches any bit inside this mask is therefore MasterDOS-only.
-	const samdos2Mask uint8 = ^uint8(0x20) // = 0xDF
 	for _, fe := range dj {
 		if fe == nil || !fe.Used() {
 			continue
 		}
-		if fe.MGTFlags&samdos2Mask != 0 {
+		switch fe.MGTFlags {
+		case 0x00, 0x20, 0xff:
+			// SAMDOS-2 set — silent.
+		default:
 			return DialectMasterDOS
 		}
 	}
