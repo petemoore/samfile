@@ -41,6 +41,15 @@ func checkDirTypeByteIsKnown(ctx *CheckContext) []Finding {
 	var findings []Finding
 	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
 		t := uint8(fe.Type) & 0x1F
+		// Iteration 1 FIX: type byte 0 is the erased-slot sentinel
+		// and is handled (with the structural severity it deserves)
+		// by DIR-ERASED-IS-ZERO. The catalog's test sketch explicitly
+		// lists 0 in the accepted set, so this rule should not also
+		// fire on it. Skipping here removes a 100% double-fire across
+		// 2,492 corpus findings.
+		if t == 0 {
+			return
+		}
 		if !dirKnownTypes[t] {
 			findings = append(findings, Finding{
 				RuleID:   "DIR-TYPE-BYTE-IS-KNOWN",

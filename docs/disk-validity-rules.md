@@ -309,7 +309,11 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - Dialect: all
 - Test sketch: after masking flags, type is in {0, 5, 16, 17, 18,
   19, 20}; warn (don't error) on types 1-4, 6-12 (ZX-compat /
-  MasterDOS / SAMDOS-1) and unknown values.
+  MasterDOS / SAMDOS-1) and unknown values. (Iteration 1 FIX:
+  type 0 is the erased-slot sentinel and is now explicitly
+  delegated to DIR-ERASED-IS-ZERO; this rule no longer fires on
+  Type=0, eliminating a 100% double-fire across 2,492 corpus
+  findings.)
 - Open questions: types 1-12 in SAMDOS's DIR table correspond to ZX
   / Plus-D legacy file types. Real-world MGT disks rarely use them.
   Type 6 ("MD.FILE") is MasterDOS; type 8 ("SPECIAL") is opaque. A

@@ -12,18 +12,30 @@ func TestDirTypeByteIsKnownPositive(t *testing.T) {
 	}
 }
 
-func TestDirTypeByteIsKnownNegative(t *testing.T) {
+// (Previously: TestDirTypeByteIsKnownNegative used FileType(0) to
+// trigger the rule. Iteration 1 FIX explicitly skips Type==0
+// because DIR-ERASED-IS-ZERO handles that condition with
+// structural severity. Under the new behaviour the rule is
+// effectively unreachable via the in-memory builder: every
+// FileType that passes FileEntry.Used() — i.e. doesn't render as
+// `UNKNOWN (N)` via String() — has its low-5 bits already in
+// dirKnownTypes. The rule fires on raw corpus disks whose type
+// byte was hand-written. TestDirTypeByteIsKnownSkipsErased below
+// covers the FIX itself.)
+
+func TestDirTypeByteIsKnownSkipsErased(t *testing.T) {
+	// Iteration 1 FIX regression test: type byte 0 is the erased-slot
+	// sentinel and is handled by DIR-ERASED-IS-ZERO at structural
+	// severity. DIR-TYPE-BYTE-IS-KNOWN must not also fire on it
+	// (previously double-fired across 2,492 corpus findings).
 	di, dj := cleanSingleFileDisk(t, "TEST", 100)
-	// FileType(7) makes Used() return false (String()="UNKNOWN (7)"), so use
-	// FileType(0) = FT_ERASED instead: String()="Erased" passes Used(), but
-	// uint8(0)&0x1F = 0 is not in dirKnownTypes, so the rule fires.
 	dj[0].Type = FileType(0)
 	di.WriteFileEntry(dj, 0)
 	findings := checkDirTypeByteIsKnown(&CheckContext{
 		Disk: di, Journal: di.DiskJournal(),
 	})
-	if len(findings) != 1 || findings[0].RuleID != "DIR-TYPE-BYTE-IS-KNOWN" {
-		t.Fatalf("got %d findings, first=%+v; want 1 DIR-TYPE-BYTE-IS-KNOWN", len(findings), findings)
+	if len(findings) != 0 {
+		t.Errorf("Type=0 (erased sentinel): %d findings; want 0 (DIR-ERASED-IS-ZERO handles this)", len(findings))
 	}
 }
 
