@@ -98,8 +98,20 @@ func bootFileDialect(dj *DiskJournal) Dialect {
 
 // mgtFlagsDialect scans every used slot's MGTFlags. A bit outside the
 // SAMDOS-2 set {0x00, 0x20} signals MasterDOS (catalog:
-// DIALECT-MASTERDOS-MGTFLAGS, sourced from real-disk observation —
-// SAMDOS source has no MGTFlags reader). Filled in by a later task.
+// DIALECT-MASTERDOS-MGTFLAGS). Real-disk observation: MasterDOS sets
+// per-file attribute bits beyond 0x20 to track its own metadata,
+// while SAMDOS-2 leaves MGTFlags at either 0x00 (CODE) or 0x20 (BASIC).
+// Returns DialectUnknown when every used slot's MGTFlags is in the
+// SAMDOS-2 set, including the trivial empty-disk case.
 func mgtFlagsDialect(dj *DiskJournal) Dialect {
+	const samdos2Mask uint8 = ^uint8(0x20) // bits the SAMDOS-2 set ignores
+	for _, fe := range dj {
+		if fe == nil || !fe.Used() {
+			continue
+		}
+		if fe.MGTFlags&samdos2Mask != 0 {
+			return DialectMasterDOS
+		}
+	}
 	return DialectUnknown
 }

@@ -74,3 +74,43 @@ func TestDetectDialectSAMDOS1ByType3(t *testing.T) {
 		t.Errorf("DetectDialect(type-3 boot file) = %v; want samdos1", got)
 	}
 }
+
+func TestDetectDialectMasterDOSByMGTFlags(t *testing.T) {
+	// AddCodeFile leaves MGTFlags at 0x00 (vanilla SAMDOS-2 CODE
+	// convention). Patch MGTFlags to 0x80 — an extended bit outside
+	// {0x00, 0x20} — and DetectDialect must report MasterDOS.
+	di := NewDiskImage()
+	if err := di.AddCodeFile("data", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	dj := di.DiskJournal()
+	dj[0].MGTFlags = 0x80
+	di.WriteFileEntry(dj, 0)
+
+	if got := DetectDialect(di); got != DialectMasterDOS {
+		t.Errorf("DetectDialect(MGTFlags=0x80) = %v; want masterdos", got)
+	}
+}
+
+func TestMGTFlagsDialectVanillaIsSilent(t *testing.T) {
+	// A disk where every used slot has MGTFlags in {0x00, 0x20}
+	// (vanilla SAMDOS-2) yields no opinion from mgtFlagsDialect.
+	di := NewDiskImage()
+	if err := di.AddCodeFile("CODE", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile (CODE, MGTFlags=0): %v", err)
+	}
+	// AddBasicFile sets MGTFlags=0x20 — exercise both bytes of the
+	// SAMDOS-2 set.
+	// (We do not need a real BASIC body; patch the second slot's
+	// MGTFlags directly to keep the test minimal.)
+	if err := di.AddCodeFile("BASIC", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile (BASIC stub): %v", err)
+	}
+	dj := di.DiskJournal()
+	dj[1].MGTFlags = 0x20
+	di.WriteFileEntry(dj, 1)
+
+	if got := mgtFlagsDialect(di.DiskJournal()); got != DialectUnknown {
+		t.Errorf("mgtFlagsDialect(vanilla MGTFlags) = %v; want unknown", got)
+	}
+}
