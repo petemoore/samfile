@@ -47,3 +47,30 @@ func TestDetectDialectMasterDOSBootFile(t *testing.T) {
 		t.Errorf("DetectDialect(masterdos2 boot file) = %v; want masterdos", got)
 	}
 }
+
+func TestDetectDialectSAMDOS1ByName(t *testing.T) {
+	di := NewDiskImage()
+	if err := di.AddCodeFile("samdos", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	if got := DetectDialect(di); got != DialectSAMDOS1 {
+		t.Errorf("DetectDialect(samdos boot file) = %v; want samdos1", got)
+	}
+}
+
+func TestDetectDialectSAMDOS1ByType3(t *testing.T) {
+	// A bootstrap with an unrecognised filename but masked type 3 is
+	// SAMDOS-1's auto-include header (samdos/src/b.s:14-22). Use
+	// AddCodeFile, then patch Type to FT(3) via a journal write.
+	di := NewDiskImage()
+	if err := di.AddCodeFile("oddname", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	dj := di.DiskJournal()
+	dj[0].Type = FileType(3)
+	di.WriteFileEntry(dj, 0)
+
+	if got := DetectDialect(di); got != DialectSAMDOS1 {
+		t.Errorf("DetectDialect(type-3 boot file) = %v; want samdos1", got)
+	}
+}

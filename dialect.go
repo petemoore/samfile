@@ -62,13 +62,25 @@ func DetectDialect(di *DiskImage) Dialect {
 // DialectUnknown — the signal abstains rather than guesses.
 func bootFileDialect(dj *DiskJournal) Dialect {
 	for _, fe := range dj {
-		if fe == nil || !fe.Used() {
+		if fe == nil {
 			continue
 		}
 		if fe.FirstSector == nil ||
 			fe.FirstSector.Track != 4 ||
 			fe.FirstSector.Sector != 1 {
 			continue
+		}
+		// We have the boot slot. Check type-3 first: SAMDOS-1's
+		// auto-include header (samdos/src/b.s:14-22) sets this type on
+		// the bootstrap itself. Type 3 is otherwise unused by later DOSes,
+		// and restricting the check to the boot slot keeps it unambiguous.
+		// Note: FileEntry.Used() treats unknown types as not-used, so we
+		// must check type-3 before the Used() guard.
+		if uint8(fe.Type)&0x1F == 3 {
+			return DialectSAMDOS1
+		}
+		if !fe.Used() {
+			return DialectUnknown
 		}
 		name := strings.ToLower(strings.TrimSpace(fe.Name.String()))
 		switch name {
@@ -77,13 +89,6 @@ func bootFileDialect(dj *DiskJournal) Dialect {
 		case "masterdos", "masterdos2":
 			return DialectMasterDOS
 		case "samdos":
-			return DialectSAMDOS1
-		}
-		if uint8(fe.Type)&0x1F == 3 {
-			// SAMDOS-1's "auto-include header" sets type 3 on the
-			// bootstrap itself (samdos/src/b.s:14-22). Type 3 is
-			// otherwise a DIR alias for "ZX $.ARRAY"; restricting
-			// this check to the boot slot keeps it unambiguous.
 			return DialectSAMDOS1
 		}
 		return DialectUnknown
