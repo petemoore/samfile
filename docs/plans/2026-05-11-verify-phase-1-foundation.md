@@ -1295,7 +1295,7 @@ git commit -m "verify: wire CLI subcommand into main dispatch and usage"
 - `samfile verify -i <populated.mgt>` prints "no findings.", exits 0.
 - `samfile -h` lists `verify`.
 - `(*samfile.DiskImage).Verify()` is callable from external Go packages and returns a `VerifyReport` with the expected fields.
-- No real rule implementations exist yet — only the smoke-test rule. Phase 2 adds `DetectDialect`; phases 3-6 add the catalog's 70 rules. Each phase gets its own plan written when it starts.
+- No real rule implementations exist yet — only the smoke-test rule. Phase 2 adds `DetectDialect`; phases 3-6 add the catalog's 71 rules. Each phase gets its own plan written when it starts.
 
 ## Out of scope for Phase 1
 

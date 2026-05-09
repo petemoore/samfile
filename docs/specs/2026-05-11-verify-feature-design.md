@@ -3,7 +3,7 @@
 Status: approved 2026-05-11. Author: Pete (brainstormed via Claude).
 Companion docs:
 
-- `docs/disk-validity-rules.md` — the 70-rule validity catalog this feature
+- `docs/disk-validity-rules.md` — the 71-rule validity catalog this feature
   consumes. The catalog enumerates each rule's ID, severity, dialect,
   source authority, and citation; this spec describes the machinery that
   runs them and surfaces findings.
@@ -38,7 +38,7 @@ Three primary users benefit:
 These five choices were made during brainstorming; everything else
 in this spec follows from them:
 
-1. **Rule scope: all 70 rules in v1**, severity-gated by default.
+1. **Rule scope: all 71 rules in v1**, severity-gated by default.
    Every rule from `docs/disk-validity-rules.md` is implemented;
    the default UI only surfaces `fatal` + `structural` findings.
    `--all` (or `--severity=inconsistency`) brings in lower

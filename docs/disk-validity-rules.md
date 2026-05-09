@@ -682,26 +682,36 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - Test sketch: `body[3..5] == dir[0xED..0xEF]` (and the mirror at
   0xD3-0xDB).
 
-### BODY-EXEC-DIV16K-MATCHES-DIR — Body byte 5 == dir byte 0xF2
+### BODY-EXEC-DIV16K-MATCHES-DIR — Body byte 5 == dir byte 0xF2 (CODE files only)
 
-- What: Body byte 5 (`ExecutionAddressDiv16K`) mirrors dir byte
-  0xF2. The ROM auto-exec gate (rom-disasm:22467-22484) checks BOTH
-  for `0xFF` before deciding to auto-execute, so the two must agree
-  to avoid surprises.
+- What: **For FT_CODE files only,** body byte 5
+  (`ExecutionAddressDiv16K`) mirrors dir byte 0xF2. The ROM auto-exec
+  gate (rom-disasm:22467-22484) checks BOTH for `0xFF` before deciding
+  to auto-execute, so the two must agree to avoid surprises. For
+  non-CODE file types dir 0xF2 carries a different semantic
+  (e.g. FT_SAM_BASIC uses it as the auto-RUN marker — see
+  `BASIC-STARTLINE-FF-DISABLES`) and body byte 5 is unconditionally
+  `0xFF` regardless of dir 0xF2 — see `NON-CODE-BODY-EXEC-GATE-FF`
+  below.
 - Severity: structural (mismatch can cause unwanted auto-exec)
 - Source authority: ROM
 - Citation: ROM disasm L22471-22484 (see §0 above).
 - Dialect: all
+- Applies to: FT_CODE only
 - Suppressed by: PROTECTED files take a different path
   (rom-disasm:22467-22469: `BIT 1,A; JR NZ,HDNSTP`); the requested
   exec is then skipped and only the LOADED path is honoured.
-- Test sketch: `body[5] == dir[0xF2]`.
+- Test sketch: `if dir[0]&0x3F == FT_CODE then body[5] == dir[0xF2]`.
 
-### BODY-EXEC-MOD16K-LO-MATCHES-DIR — Body byte 6 == dir byte 0xF3
+### BODY-EXEC-MOD16K-LO-MATCHES-DIR — Body byte 6 == dir byte 0xF3 (CODE files only)
 
-- What: Body byte 6 holds only the low byte of
-  `ExecutionAddressMod16K`. It mirrors dir byte 0xF3. The high byte
-  (dir 0xF4) has no body-header counterpart.
+- What: **For FT_CODE files only,** body byte 6 holds only the low
+  byte of `ExecutionAddressMod16K`. It mirrors dir byte 0xF3. The high
+  byte (dir 0xF4) has no body-header counterpart. For non-CODE file
+  types dir 0xF3 carries a different semantic (e.g. FT_SAM_BASIC uses
+  it as the low byte of the auto-RUN start-line number) and body
+  byte 6 is unconditionally `0xFF` — see `NON-CODE-BODY-EXEC-GATE-FF`
+  below.
 - Severity: inconsistency
 - Source authority: ROM + samfile-implicit
 - Citation: ROM disasm L22472: `LD HL,(HDR+HDN+7)` — 16-bit LE pair
@@ -710,7 +720,48 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
   SAMDOS `dschd` (`h.s:74-90`). samfile models this via
   `FileHeader.ExecutionAddressMod16KLo` (samfile.go:194).
 - Dialect: all
-- Test sketch: `body[6] == (dir[0xF3] & 0xFF)`.
+- Applies to: FT_CODE only
+- Test sketch: `if dir[0]&0x3F == FT_CODE then body[6] == (dir[0xF3] & 0xFF)`.
+
+### NON-CODE-BODY-EXEC-GATE-FF — Body bytes 5-6 are 0xFF for non-CODE files
+
+- What: For every directory slot whose `Type & 0x3F != FT_CODE`,
+  body-header bytes 5 and 6 must both be `0xFF`. These two bytes
+  are the LOADED auto-exec gate that SAMDOS's `dschd` (`h.s:74-90`)
+  caches into HDL and that ROM's LOAD CODE path consults
+  (rom-disasm:22471-22484). For non-CODE file types they have no
+  positive semantic — ROM SAVE writes them as `0xFF`/`0xFF`
+  unconditionally for non-CODE files, signalling "no auto-exec
+  intended from the body header". For FT_SAM_BASIC specifically,
+  dir 0xF2-0xF4 carry the auto-RUN start-line marker (a structurally
+  different field; see `BASIC-STARTLINE-FF-DISABLES`), so propagating
+  dir 0xF2/0xF3 into body bytes 5/6 would corrupt the body header
+  even though it would still satisfy `BODY-MIRROR-AT-DIR-D3-DB`'s
+  consistency check between the body and its mirror at dir 0xD3-0xDB.
+  Found in real samfile output by the parallel fix in samfile PR #15
+  / commit `5184c5fe` while removing caller-side patches from
+  sam-aarch64 PR #4.
+- Severity: structural (a non-FF body byte 5 enters the LOADED-exec
+  path on LOAD CODE; for a BASIC file produced by buggy samfile this
+  would attempt to auto-exec at the start-line-derived address)
+- Source authority: ROM + samfile-fix
+- Citation: SAM ROM SAVE writes `HDR+HDN+5` = `HDR+HDN+6` = `0xFF`
+  unconditionally for non-CODE files during BASIC SAVE
+  (rom-disasm around 22136-22141). `test-mgt-byte-layout.md`
+  documents "bytes 5-6: ff ff — no auto-exec from body header" for
+  the canonical samdos2 BASIC AUTO file. samfile PR #15 commit
+  `5184c5fe`: `fix: body header bytes 5-6 must be 0xFF for
+  non-CODE files`.
+- Dialect: all
+- Applies to: everything except FT_CODE (FT_SAM_BASIC, FT_NUM_ARRAY,
+  FT_STR_ARRAY, FT_SCREEN, FT_ZX_SNAPSHOT)
+- Test sketch: `for fe in journal.UsedFileEntries(): if fe.Type & 0x3F
+  != FT_CODE { assert body[5] == 0xFF && body[6] == 0xFF; assert
+  MGTFutureAndPast[6] == 0xFF && MGTFutureAndPast[7] == 0xFF }`. The
+  `MGTFutureAndPast` half of the assertion is technically redundant
+  with `BODY-MIRROR-AT-DIR-D3-DB`, but the redundancy is the point:
+  if a buggy writer produces internally-consistent-but-wrong output
+  (both body and mirror non-FF), only this rule fires.
 
 ### BODY-PAGES-MATCHES-DIR — Body byte 7 == dir byte 0xEF
 
