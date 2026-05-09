@@ -244,3 +244,44 @@ func (r VerifyReport) Filter(opts FilterOpts) []Finding {
 	}
 	return out
 }
+
+// Verify runs all registered rules against di and returns a report
+// describing the disk's structural state. The report is always
+// populated — individual rule failures are surfaced as Findings,
+// not Go errors. Verify itself does not return an error.
+//
+// In Phase 1, dialect detection is not yet implemented and Verify
+// always passes DialectUnknown to rules; rules whose Dialects slice
+// is non-empty and excludes DialectUnknown are skipped. Phase 2
+// adds DetectDialect.
+func (di *DiskImage) Verify() VerifyReport {
+	dialect := DialectUnknown
+	ctx := &CheckContext{
+		Disk:    di,
+		Journal: di.DiskJournal(),
+		Dialect: dialect,
+	}
+	report := VerifyReport{Dialect: dialect}
+	for _, rule := range allRules {
+		if !ruleAppliesToDialect(rule, dialect) {
+			continue
+		}
+		report.Findings = append(report.Findings, rule.Check(ctx)...)
+	}
+	return report
+}
+
+// ruleAppliesToDialect reports whether rule should run when the
+// detected dialect is d. A rule with no Dialects field set (nil or
+// empty) applies to all dialects.
+func ruleAppliesToDialect(rule Rule, d Dialect) bool {
+	if len(rule.Dialects) == 0 {
+		return true
+	}
+	for _, allowed := range rule.Dialects {
+		if allowed == d {
+			return true
+		}
+	}
+	return false
+}

@@ -197,3 +197,87 @@ func TestVerifyReportHasFatalEmpty(t *testing.T) {
 		t.Error("empty report should not report Has*")
 	}
 }
+
+func TestVerifyRunsRegisteredRules(t *testing.T) {
+	saved := append([]Rule(nil), allRules...)
+	allRules = nil
+	defer func() { allRules = saved }()
+
+	called := 0
+	Register(Rule{
+		ID:          "X-1",
+		Severity:    SeverityFatal,
+		Description: "always fires",
+		Citation:    "test",
+		Check: func(ctx *CheckContext) []Finding {
+			called++
+			return []Finding{{
+				RuleID:   "X-1",
+				Severity: SeverityFatal,
+				Location: DiskWideLocation(),
+				Message:  "test finding",
+				Citation: "test",
+			}}
+		},
+	})
+
+	di := NewDiskImage()
+	report := di.Verify()
+
+	if called != 1 {
+		t.Errorf("Check called %d times; want 1", called)
+	}
+	if len(report.Findings) != 1 {
+		t.Fatalf("Findings = %d; want 1", len(report.Findings))
+	}
+	if report.Findings[0].RuleID != "X-1" {
+		t.Errorf("Findings[0].RuleID = %q; want X-1", report.Findings[0].RuleID)
+	}
+}
+
+func TestVerifyRespectsDialectScoping(t *testing.T) {
+	saved := append([]Rule(nil), allRules...)
+	allRules = nil
+	defer func() { allRules = saved }()
+
+	allDialects := 0
+	scoped := 0
+	Register(Rule{
+		ID:          "ALL",
+		Severity:    SeverityCosmetic,
+		Description: "all dialects",
+		Citation:    "test",
+		Check:       func(ctx *CheckContext) []Finding { allDialects++; return nil },
+	})
+	Register(Rule{
+		ID:          "MASTERDOS-ONLY",
+		Severity:    SeverityCosmetic,
+		Dialects:    []Dialect{DialectMasterDOS},
+		Description: "masterdos only",
+		Citation:    "test",
+		Check:       func(ctx *CheckContext) []Finding { scoped++; return nil },
+	})
+
+	di := NewDiskImage()
+	di.Verify() // Phase 1 always passes DialectUnknown
+
+	if allDialects != 1 {
+		t.Errorf("all-dialects rule called %d times; want 1", allDialects)
+	}
+	if scoped != 0 {
+		t.Errorf("masterdos-only rule called %d times; want 0 (dialect is Unknown)", scoped)
+	}
+}
+
+func TestVerifyReportCarriesDialect(t *testing.T) {
+	saved := append([]Rule(nil), allRules...)
+	allRules = nil
+	defer func() { allRules = saved }()
+
+	di := NewDiskImage()
+	report := di.Verify()
+	// Phase 1: dialect detection is not implemented; always DialectUnknown.
+	if report.Dialect != DialectUnknown {
+		t.Errorf("Dialect = %v; want unknown (detection lands in Phase 2)", report.Dialect)
+	}
+}
