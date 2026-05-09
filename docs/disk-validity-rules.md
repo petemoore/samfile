@@ -595,7 +595,16 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 
 - What: The set of sectors visited during a chain walk must equal
   the set of bits set in dir bytes 0x0F-0xD1.
-- Severity: structural
+- Severity: inconsistency (demoted in iter-3: SAMDOS LOAD walks the
+  chain via next-link bytes 510-511 (`samdos/src/b.s:104-110`) and
+  never reads the per-slot SectorAddressMap; the chain is the
+  LOAD-time authority. The SAM map is SAVE-side bookkeeping populated
+  by `cfsm`/`fnfs` (`samdos/src/c.s:1306-1343`,
+  `samdos/src/c.s:895-951`). A chain-vs-map disagreement is a
+  writer-tool bug — "two views of the same fact disagree" — not a
+  disk-walk invariant violation. Corpus evidence: 4,886 fires / 316
+  disks (40%); strongly correlated with CROSS-NO-SECTOR-OVERLAP
+  (291/316) and DIR-SECTORS-MATCHES-CHAIN (315/316).)
 - Source authority: SAMDOS-code + samfile-implicit
 - Citation: `samdos/src/c.s:1306-1343` (`cfsm` — Close File Sector
   Map): the allocator-side that writes both the SAM map and the
