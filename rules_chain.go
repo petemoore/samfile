@@ -186,3 +186,33 @@ func checkChainMatchesSAM(ctx *CheckContext) []Finding {
 	})
 	return findings
 }
+
+// ----- CHAIN-SECTOR-COUNT-MINIMAL -----
+func init() {
+	Register(Rule{
+		ID:          "CHAIN-SECTOR-COUNT-MINIMAL",
+		Severity:    SeverityCosmetic,
+		Description: "used file occupies exactly ceil((9 + body length) / 510) sectors (no padding sectors)",
+		Citation:    "samfile.go:919",
+		Check:       checkChainSectorCountMinimal,
+	})
+}
+
+func checkChainSectorCountMinimal(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		bodyLen := int(fe.Length())
+		required := uint16((bodyLen + 9 + 509) / 510)
+		if fe.Sectors != required {
+			findings = append(findings, Finding{
+				RuleID:   "CHAIN-SECTOR-COUNT-MINIMAL",
+				Severity: SeverityCosmetic,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message: fmt.Sprintf("file uses %d sectors but %d would suffice (bodyLen=%d)",
+					fe.Sectors, required, bodyLen),
+				Citation: "samfile.go:919",
+			})
+		}
+	})
+	return findings
+}

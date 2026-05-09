@@ -130,3 +130,25 @@ func TestChainMatchesSAMNegative(t *testing.T) {
 		t.Fatalf("got %d findings, first=%+v; want 1 CHAIN-MATCHES-SAM", len(findings), findings)
 	}
 }
+
+func TestChainSectorCountMinimalPositive(t *testing.T) {
+	di, _ := cleanSingleFileDisk(t, "TEST", 1500)
+	findings := checkChainSectorCountMinimal(&CheckContext{
+		Disk: di, Journal: di.DiskJournal(),
+	})
+	if len(findings) != 0 {
+		t.Errorf("clean disk: %d findings; want 0", len(findings))
+	}
+}
+
+func TestChainSectorCountMinimalNegative(t *testing.T) {
+	di, dj := cleanSingleFileDisk(t, "TEST", 100)
+	dj[0].Sectors += 1 // claim one more sector than the body needs
+	di.WriteFileEntry(dj, 0)
+	findings := checkChainSectorCountMinimal(&CheckContext{
+		Disk: di, Journal: di.DiskJournal(),
+	})
+	if len(findings) != 1 || findings[0].RuleID != "CHAIN-SECTOR-COUNT-MINIMAL" {
+		t.Fatalf("got %d findings, first=%+v; want 1 CHAIN-SECTOR-COUNT-MINIMAL", len(findings), findings)
+	}
+}
