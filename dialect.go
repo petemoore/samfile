@@ -104,7 +104,10 @@ func bootFileDialect(dj *DiskJournal) Dialect {
 // Returns DialectUnknown when every used slot's MGTFlags is in the
 // SAMDOS-2 set, including the trivial empty-disk case.
 func mgtFlagsDialect(dj *DiskJournal) Dialect {
-	const samdos2Mask uint8 = ^uint8(0x20) // bits the SAMDOS-2 set ignores
+	// samdos2Mask covers every bit except 0x20 — the only MGTFlags bit
+	// SAMDOS-2 ever sets (on BASIC files). A MGTFlags value that
+	// touches any bit inside this mask is therefore MasterDOS-only.
+	const samdos2Mask uint8 = ^uint8(0x20) // = 0xDF
 	for _, fe := range dj {
 		if fe == nil || !fe.Used() {
 			continue

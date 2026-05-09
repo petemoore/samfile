@@ -96,14 +96,13 @@ func TestDetectDialectMasterDOSByMGTFlags(t *testing.T) {
 func TestMGTFlagsDialectVanillaIsSilent(t *testing.T) {
 	// A disk where every used slot has MGTFlags in {0x00, 0x20}
 	// (vanilla SAMDOS-2) yields no opinion from mgtFlagsDialect.
+	// Slot 0 keeps AddCodeFile's MGTFlags=0x00 default — the CODE
+	// convention. Slot 1 is patched to MGTFlags=0x20 to stand in for
+	// a BASIC file (cheaper than constructing a real tokenised body).
 	di := NewDiskImage()
 	if err := di.AddCodeFile("CODE", []byte{0xC9}, 0x8000, 0); err != nil {
 		t.Fatalf("AddCodeFile (CODE, MGTFlags=0): %v", err)
 	}
-	// AddBasicFile sets MGTFlags=0x20 — exercise both bytes of the
-	// SAMDOS-2 set.
-	// (We do not need a real BASIC body; patch the second slot's
-	// MGTFlags directly to keep the test minimal.)
 	if err := di.AddCodeFile("BASIC", []byte{0xC9}, 0x8000, 0); err != nil {
 		t.Fatalf("AddCodeFile (BASIC stub): %v", err)
 	}
