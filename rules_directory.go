@@ -169,9 +169,11 @@ func checkDirFirstSectorValid(ctx *CheckContext) []Finding {
 		fs := fe.FirstSector
 		t := fs.Track
 		s := fs.Sector
-		// Side bit (0x80) is informational; mask it off for the cylinder check.
-		cyl := t & 0x7F
-		validTrack := (t < 80 || (t >= 128 && t < 208)) && cyl >= 4
+		// Directory area is side 0 cylinders 0..3 only (Tech Manual L4340-4343);
+		// side 1 cylinders 0..3 (tracks 0x80..0x83) are valid data sectors.
+		// Side 0 (0x00..0x4F): cylinders 0..3 are the directory area, 4..79 are data.
+		// Side 1 (0x80..0xCF): all 80 cylinders are data.
+		validTrack := (t >= 4 && t < 80) || (t >= 128 && t < 208)
 		validSector := s >= 1 && s <= 10
 		if !validTrack || !validSector {
 			findings = append(findings, Finding{

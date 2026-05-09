@@ -625,7 +625,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - Citation: `samfile.go:984-987` (`SAMMask` formula). For chains:
   any link `(track, sector)` with `track < 4` would be invalid.
 - Dialect: all
-- Test sketch: every link in every chain has `(track & 0x7F) >= 4`.
+- Test sketch: every link in every chain has `track in {4..79, 128..207}`
+  (i.e. `track < 4` only on side 0; side 1 cylinders 0..3 are data sectors).
 
 ---
 

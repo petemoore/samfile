@@ -102,7 +102,9 @@ func checkCrossDirectoryAreaUnused(ctx *CheckContext) []Finding {
 	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
 		result := walkChain(ctx.Disk, fe.FirstSector)
 		for _, st := range result.Steps {
-			if (st.Sector.Track & 0x7F) < 4 {
+			// Directory area is side 0 cylinders 0..3 only (Tech Manual L4340-4343);
+			// side 1 cylinders 0..3 (tracks 0x80..0x83) are valid data sectors.
+			if st.Sector.Track < 4 {
 				s := st.Sector
 				findings = append(findings, Finding{
 					RuleID:   "CROSS-DIRECTORY-AREA-UNUSED",
