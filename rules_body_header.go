@@ -298,3 +298,114 @@ func checkBodyMirrorAtDirD3DB(ctx *CheckContext) []Finding {
 	})
 	return findings
 }
+
+// ----- BODY-PAGEOFFSET-8000H-FORM -----
+// Real ROM SAVE writes PageOffset with bit 15 set ("8000H form" / REL
+// PAGE FORM convention, Tech Manual L3037-3052). Both samfile.Start()
+// and the ROM PDPSR2 decoder mask & 0x3FFF before use, so a bit-15-
+// clear value still parses — but it deviates from convention and is
+// a useful corpus-validation signal.
+func init() {
+	Register(Rule{
+		ID:          "BODY-PAGEOFFSET-8000H-FORM",
+		Severity:    SeverityCosmetic,
+		Description: "body-header PageOffset has bit 15 set (8000H-form convention)",
+		Citation:    "sam-coupe_tech-man_v3-0.txt:3037-3052",
+		Check:       checkBodyPageOffset8000HForm,
+	})
+}
+
+func checkBodyPageOffset8000HForm(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		pageOffset := uint16(hdr[3]) | uint16(hdr[4])<<8
+		// A zero offset is a legitimate "page-aligned" load; only warn
+		// when there are bits in the low 14 but bit 15 is clear.
+		if pageOffset != 0 && pageOffset&0x8000 == 0 {
+			findings = append(findings, Finding{
+				RuleID:   "BODY-PAGEOFFSET-8000H-FORM",
+				Severity: SeverityCosmetic,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message:  fmt.Sprintf("body PageOffset = 0x%04x is missing bit 15 (8000H-form convention)", pageOffset),
+				Citation: "sam-coupe_tech-man_v3-0.txt:3037-3052",
+			})
+		}
+	})
+	return findings
+}
+
+// ----- BODY-PAGE-LE-31 -----
+// body[8] & 0x1F is the page index BEFORE samfile's +1 shift in
+// FileHeader.Start(). Index 31 (raw) gives a +1 of 32, which lands
+// the load address at 0x80000 (off-disk pseudo-page used as a
+// marker, e.g. by SAMBASIC). Real on-disk load addresses use 0..30.
+func init() {
+	Register(Rule{
+		ID:          "BODY-PAGE-LE-31",
+		Severity:    SeverityStructural,
+		Description: "body-header StartPage's low 5 bits encode an on-disk page index (0..30)",
+		Citation:    "samfile.go:248-249",
+		Check:       checkBodyPageLE31,
+	})
+}
+
+func checkBodyPageLE31(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		page := hdr[8] & 0x1F
+		if page > 30 {
+			findings = append(findings, Finding{
+				RuleID:   "BODY-PAGE-LE-31",
+				Severity: SeverityStructural,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message:  fmt.Sprintf("body StartPage low-5 bits = %d (>30); +1 shift lands above on-disk pages", page),
+				Citation: "samfile.go:248-249",
+			})
+		}
+	})
+	return findings
+}
+
+// ----- BODY-BYTES-5-6-CANONICAL-FF -----
+// When ExecutionAddressDiv16K (body[5]) is 0xFF (the "no auto-exec"
+// marker), real ROM SAVE writes 0xFF to body[6] as well — both bytes
+// 0xFF are the canonical "no auto-exec" pair. samfile's writer emits
+// 0x00 for body[6] in that case (samfile.go:1011-1023). Both parse
+// identically, but the convention is FF FF.
+func init() {
+	Register(Rule{
+		ID:          "BODY-BYTES-5-6-CANONICAL-FF",
+		Severity:    SeverityCosmetic,
+		Description: "when body[5]==0xFF (no auto-exec), real SAVE writes body[6]==0xFF too",
+		Citation:    "rom-disasm:22076-22080",
+		Check:       checkBodyBytes56CanonicalFF,
+	})
+}
+
+func checkBodyBytes56CanonicalFF(ctx *CheckContext) []Finding {
+	var findings []Finding
+	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
+		if err != nil {
+			return
+		}
+		if hdr[5] == 0xFF && hdr[6] != 0xFF {
+			findings = append(findings, Finding{
+				RuleID:   "BODY-BYTES-5-6-CANONICAL-FF",
+				Severity: SeverityCosmetic,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message:  fmt.Sprintf("body[5]=0xFF (no auto-exec) but body[6]=0x%02x; canonical SAVE writes 0xFF here too", hdr[6]),
+				Citation: "rom-disasm:22076-22080",
+			})
+		}
+	})
+	return findings
+}

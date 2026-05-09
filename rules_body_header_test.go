@@ -209,3 +209,68 @@ func TestBodyMirrorAtDirD3DBNegative(t *testing.T) {
 		t.Fatalf("got %d findings, first=%+v; want 1 BODY-MIRROR-AT-DIR-D3-DB", len(findings), findings)
 	}
 }
+
+// ----- BODY-PAGEOFFSET-8000H-FORM -----
+
+func TestBodyPageOffset8000HFormPositive(t *testing.T) {
+	di, _ := cleanSingleFileDisk(t, "TEST", 100)
+	findings := checkBodyPageOffset8000HForm(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 0 {
+		t.Errorf("clean disk: %d findings; want 0", len(findings))
+	}
+}
+
+func TestBodyPageOffset8000HFormNegative(t *testing.T) {
+	di, _ := cleanSingleFileDisk(t, "TEST", 100)
+	// Patch body bytes 3-4 to a non-zero offset with bit 15 clear (0x12 0x34 = 0x3412).
+	mutateFirstSectorByte(t, di, 3, 0x12)
+	mutateFirstSectorByte(t, di, 4, 0x34)
+	findings := checkBodyPageOffset8000HForm(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 1 || findings[0].RuleID != "BODY-PAGEOFFSET-8000H-FORM" {
+		t.Fatalf("got %d findings, first=%+v; want 1 BODY-PAGEOFFSET-8000H-FORM", len(findings), findings)
+	}
+}
+
+// ----- BODY-PAGE-LE-31 -----
+
+func TestBodyPageLE31Positive(t *testing.T) {
+	di, _ := cleanSingleFileDisk(t, "TEST", 100)
+	findings := checkBodyPageLE31(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 0 {
+		t.Errorf("clean disk: %d findings; want 0", len(findings))
+	}
+}
+
+func TestBodyPageLE31Negative(t *testing.T) {
+	di, _ := cleanSingleFileDisk(t, "TEST", 100)
+	mutateFirstSectorByte(t, di, 8, 0x1F) // low-5 = 31, exceeds 30
+	findings := checkBodyPageLE31(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 1 || findings[0].RuleID != "BODY-PAGE-LE-31" {
+		t.Fatalf("got %d findings, first=%+v; want 1 BODY-PAGE-LE-31", len(findings), findings)
+	}
+}
+
+// ----- BODY-BYTES-5-6-CANONICAL-FF -----
+
+func TestBodyBytes56CanonicalFFPositive(t *testing.T) {
+	// samfile's AddCodeFile(...,exec=0) sets fe.ExecutionAddressDiv16K = 0xFF
+	// and fe.ExecutionAddressMod16K = 0xFFFF; CreateHeader (samfile.go:921)
+	// in turn emits body[5]=0xFF, body[6]=0xFF — the canonical pair this
+	// rule expects. A clean disk therefore yields no findings.
+	di, _ := cleanSingleFileDisk(t, "TEST", 100)
+	findings := checkBodyBytes56CanonicalFF(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 0 {
+		t.Errorf("clean no-auto-exec disk (body[5..6]={0xFF, 0xFF}): %d findings; want 0", len(findings))
+	}
+}
+
+func TestBodyBytes56CanonicalFFNegative(t *testing.T) {
+	// Patch body[6] alone to 0x00, leaving body[5]=0xFF. The {0xFF, 0x00}
+	// pair is the non-canonical mix this cosmetic rule warns about.
+	di, _ := cleanSingleFileDisk(t, "TEST", 100)
+	mutateFirstSectorByte(t, di, 6, 0x00)
+	findings := checkBodyBytes56CanonicalFF(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 1 || findings[0].RuleID != "BODY-BYTES-5-6-CANONICAL-FF" {
+		t.Fatalf("got %d findings, first=%+v; want 1 BODY-BYTES-5-6-CANONICAL-FF", len(findings), findings)
+	}
+}
