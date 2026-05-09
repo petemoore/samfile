@@ -488,7 +488,7 @@ func (di *DiskImage) AddCodeFile(name string, data []byte, loadAddress, executio
 		ExecutionAddressMod16K: 0xffff,
 	}
 	if executionAddress > 0 {
-		fe.ExecutionAddressDiv16K = uint8(executionAddress>>14) - 1
+		fe.ExecutionAddressDiv16K = uint8(executionAddress >> 14)
 		fe.ExecutionAddressMod16K = uint16((executionAddress & 0x3fff) | 0x8000)
 	}
 	return di.addFile(
