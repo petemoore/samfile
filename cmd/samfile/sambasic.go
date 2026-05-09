@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"io"
+	"log"
 	"os"
 
 	"github.com/petemoore/samfile/v3"
@@ -10,7 +11,11 @@ import (
 
 func basicToText(arguments map[string]interface{}) {
 	var buf bytes.Buffer
-	io.Copy(&buf, os.Stdin)
+	if _, err := io.Copy(&buf, os.Stdin); err != nil {
+		log.Fatal(err)
+	}
 	sb := samfile.NewSAMBasic(buf.Bytes())
-	sb.Output()
+	if err := sb.Output(); err != nil {
+		log.Fatal(err)
+	}
 }

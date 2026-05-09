@@ -17,7 +17,10 @@ func NewSAMBasic(data []byte) *SAMBasic {
 	}
 }
 
-func (basic *SAMBasic) Output() {
+func (basic *SAMBasic) Output() error {
+	if len(basic.Data) == 0 {
+		return fmt.Errorf("basic-to-text: empty input; expected SAM BASIC bytes on stdin")
+	}
 	index := uint32(0)
 	for {
 		if basic.Data[index] == 0xff {
@@ -59,4 +62,5 @@ func (basic *SAMBasic) Output() {
 		}
 		index += uint32(lineLen)
 	}
+	return nil
 }

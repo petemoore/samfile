@@ -523,3 +523,34 @@ func TestLoadRejectsEDSK(t *testing.T) {
 		t.Errorf("error message %q does not include the samdisk URL", msg)
 	}
 }
+
+// TestSAMBasicOutputRejectsEmptyInput pins the no-panic contract for
+// (*SAMBasic).Output(): empty input must produce a clear error, not an
+// index-out-of-range panic at sambasic.go:23.
+//
+// Reproduces the user-visible bug where
+//
+//	samfile cat -i edsk.dsk -f some-file | samfile basic-to-text
+//
+// piped 0 bytes (because the EDSK reader returned garbage that didn't
+// match any file) and basic-to-text panicked with
+// "index out of range [0] with length 0".
+//
+// Empty input is a degenerate but unavoidable case at a CLI pipe
+// boundary: any upstream that writes nothing must not crash this stage.
+func TestSAMBasicOutputRejectsEmptyInput(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Output() panicked on empty input: %v", r)
+		}
+	}()
+
+	sb := NewSAMBasic([]byte{})
+	err := sb.Output()
+	if err == nil {
+		t.Fatal("Output() returned nil error on empty input; want a clear rejection")
+	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("error %q does not mention empty input", err.Error())
+	}
+}
