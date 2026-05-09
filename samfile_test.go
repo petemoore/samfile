@@ -2,6 +2,7 @@ package samfile
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -552,5 +553,83 @@ func TestSAMBasicOutputRejectsEmptyInput(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "empty") {
 		t.Errorf("error %q does not mention empty input", err.Error())
+	}
+}
+
+// TestSAMBasicOutputBoundsChecks pins the no-panic contract for
+// (*SAMBasic).Output() on malformed-but-non-empty input. The empty-input
+// guard added in commit 00877fa handles len==0; this test covers the
+// decode loop's per-byte accesses, which were also unchecked.
+//
+// Each case is a deliberately-truncated SAM BASIC blob that, before the
+// bounds-check fix, would panic with "index out of range" inside
+// sambasic.go. After the fix, all return a clear error mentioning
+// truncation or invalid input. None should panic; defer/recover catches
+// any escapee.
+func TestSAMBasicOutputBoundsChecks(t *testing.T) {
+	cases := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "single non-sentinel byte: panics on Data[1] for line-no MSB",
+			data: []byte{0x00},
+		},
+		{
+			name: "two-byte input: panics on Data[2] for line-len LSB",
+			data: []byte{0x00, 0x01},
+		},
+		{
+			name: "three-byte input: panics on Data[3] for line-len MSB",
+			data: []byte{0x00, 0x01, 0x05},
+		},
+		{
+			name: "header complete but no body and no sentinel after",
+			data: []byte{0x00, 0x01, 0x00, 0x00},
+		},
+		{
+			name: "lineLen says 10 but body is only 3 bytes",
+			data: []byte{0x00, 0x01, 0x0a, 0x00, 0x41, 0x42, 0x43},
+		},
+		{
+			name: "0xff keyword escape with no following byte",
+			data: []byte{0x00, 0x01, 0x01, 0x00, 0xff},
+		},
+		{
+			name: "no 0xff sentinel anywhere, body fits but program never terminates",
+			data: []byte{0x00, 0x01, 0x02, 0x00, 0x41, 0x0d},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("Output() panicked on truncated input %v: %v", c.data, r)
+				}
+			}()
+			// Capture stdout so partial output during decode doesn't pollute
+			// the test runner. We discard it; we only care about the no-panic
+			// + error-returned contract.
+			oldStdout := os.Stdout
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("os.Pipe: %v", err)
+			}
+			os.Stdout = w
+			defer func() { os.Stdout = oldStdout }()
+			drained := make(chan struct{})
+			go func() {
+				_, _ = io.Copy(io.Discard, r)
+				close(drained)
+			}()
+
+			outErr := NewSAMBasic(c.data).Output()
+			_ = w.Close()
+			<-drained
+
+			if outErr == nil {
+				t.Fatalf("Output() returned nil error on truncated input %v; want non-nil", c.data)
+			}
+		})
 	}
 }
