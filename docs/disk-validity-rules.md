@@ -1135,7 +1135,10 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 
 - What: For ROM BOOTEX to dispatch to the loaded sector, bytes
   256-259 of T4S1 must spell `B O O T` (any case; bit 7 ignored).
-- Severity: fatal (bootability)
+- Severity: structural (bootability) — demoted from fatal in iteration
+  1: 27.2% of real-world disks (218/800) own T4S1 but lack the BOOT
+  signature; these load correctly under another boot disk, so
+  "fatal" is too strong by the spec's definition.
 - Source authority: ROM
 - Citation: rom-disasm:20582-20598 (`BTNOE`/`BTCK`/`BTLY`):
 
