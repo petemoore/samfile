@@ -2,6 +2,9 @@ package samfile
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -476,4 +479,47 @@ func TestAddFileMultiFileNoCorruption(t *testing.T) {
 			t.Fatalf("file B body differs from input")
 		}
 	})
+}
+
+// TestLoadRejectsEDSK pins the user-visible error when samfile is handed
+// an Extended CPC DSK image instead of a raw MGT image.
+//
+// EDSK files start with the 34-byte ASCII magic
+// "EXTENDED CPC DSK File\r\nDisk-Info\r\n" at offset 0 (per
+// https://www.cpcwiki.eu/index.php/Format:DSK_disk_image_file_format).
+// Without rejection, samfile silently treats the first 819200 bytes as
+// raw MGT — the directory decode happens to land on plausible bytes
+// (file names look right) but file-body sector reads at MGT offsets
+// return garbage, because EDSK interleaves track-info blocks with
+// sector data.
+//
+// The fix detects the magic at the entry to Load() and returns an
+// error pointing the user at samdisk, which round-trips EDSK<->MGT.
+func TestLoadRejectsEDSK(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fake.dsk")
+
+	// 256-byte fake EDSK: magic at offset 0, zeros elsewhere. The
+	// magic prefix alone is sufficient for detection; the rest of the
+	// disk-info block is not inspected.
+	fakeEDSK := make([]byte, 256)
+	copy(fakeEDSK, []byte("EXTENDED CPC DSK File\r\nDisk-Info\r\n"))
+	if err := os.WriteFile(path, fakeEDSK, 0600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() returned nil error on EDSK input; want rejection")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "EDSK") {
+		t.Errorf("error message %q does not mention EDSK", msg)
+	}
+	if !strings.Contains(msg, "samdisk") {
+		t.Errorf("error message %q does not mention the samdisk conversion command", msg)
+	}
+	if !strings.Contains(msg, "simonowen.com") {
+		t.Errorf("error message %q does not include the samdisk URL", msg)
+	}
 }

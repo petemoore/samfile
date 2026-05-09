@@ -3,6 +3,7 @@
 package samfile
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -168,10 +169,20 @@ func (sector *Sector) String() string {
 	return fmt.Sprintf("Track %v / Sector %v", sector.Track, sector.Sector)
 }
 
+// edskMagic is the prefix every Extended CPC DSK image starts with. The
+// full on-disk magic is "EXTENDED CPC DSK File\r\nDisk-Info\r\n" (34
+// bytes); the 21-byte prefix below is unambiguous and matches both EDSK
+// and any future EDSK-derived variants that share the literal.
+// Reference: https://www.cpcwiki.eu/index.php/Format:DSK_disk_image_file_format
+var edskMagic = []byte("EXTENDED CPC DSK File")
+
 func Load(filename string) (*DiskImage, error) {
 	image, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("ERROR: Can't load disk image %q: %v", filename, err)
+	}
+	if len(image) >= len(edskMagic) && bytes.Equal(image[:len(edskMagic)], edskMagic) {
+		return nil, fmt.Errorf("error: EDSK format not supported; convert to MGT with samdisk (https://simonowen.com/samdisk/): samdisk %s OUTPUT.mgt", filename)
 	}
 	d := DiskImage{}
 	copy(d[:], image)
