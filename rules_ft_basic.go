@@ -300,14 +300,30 @@ func checkBasicStartLineFFDisables(ctx *CheckContext) []Finding {
 }
 
 // ----- BASIC-STARTLINE-WITHIN-PROG -----
-// When auto-RUN is enabled, the start-line should correspond to an
-// actual line in the saved program. Cosmetic — auto-RUN of a missing
-// line just errors with "Statement lost", it's not a corruption.
+// When auto-RUN is enabled, the start-line should not exceed the
+// highest line number in the saved program. ROM BASIC's RUN N uses
+// NEXT-LINE-GE semantics (the lookup finds the first line whose
+// number is >= N), so `RUN N` where N is less than or equal to the
+// highest line in the program starts at the first line at or after
+// N — this is exactly the canonical "RUN 1 to start from the
+// beginning" idiom. Only `RUN N` where N is greater than every
+// saved line is a real bug: there's no line at or after N, and
+// BASIC errors out.
+//
+// Iteration 1 REWORD: previously fired on "start-line not present
+// in the saved program" — which mis-described the rule's intent
+// because the canonical "RUN 1 with first line 10" pattern (78% of
+// 3,074 corpus fires) is not an error, just a marker for "start
+// from the beginning". The catalog's "Statement lost" framing was
+// also wrong: SAM BASIC's NEXT-LINE-GE lookup means RUN N at or
+// below the lowest line is a no-op, not an error.
+//
+// Severity stays cosmetic.
 func init() {
 	Register(Rule{
 		ID:          "BASIC-STARTLINE-WITHIN-PROG",
 		Severity:    SeverityCosmetic,
-		Description: "FT_SAM_BASIC auto-RUN start-line exists in the saved program",
+		Description: "FT_SAM_BASIC auto-RUN start-line is at or below the highest saved line (RUN's NEXT-LINE-GE lookup tolerates start-lines below the lowest saved line)",
 		Citation:    "rom-disasm:22136-22141",
 		Check:       checkBasicStartLineWithinProg,
 	})
@@ -334,18 +350,29 @@ func checkBasicStartLineWithinProg(ctx *CheckContext) []Finding {
 		if err != nil {
 			return // BASIC-LINE-NUMBER-BE reports the parse failure
 		}
+		if len(bf.Lines) == 0 {
+			return // empty program; BASIC-LINE-NUMBER-BE / parse rules cover this
+		}
 		want := fe.SAMBASICStartLine
+		// Find the highest line number in the saved program.
+		var highest uint16
 		for _, ln := range bf.Lines {
-			if ln.Number == want {
-				return
+			if ln.Number > highest {
+				highest = ln.Number
 			}
 		}
-		findings = append(findings, Finding{
-			RuleID: "BASIC-STARTLINE-WITHIN-PROG", Severity: SeverityCosmetic,
-			Location: SlotLocation(slot, fe.Name.String()),
-			Message:  fmt.Sprintf("BASIC auto-RUN line %d not present in the saved program", want),
-			Citation: "rom-disasm:22136-22141",
-		})
+		// Iteration 1 REWORD: SAM BASIC RUN N uses NEXT-LINE-GE
+		// semantics. `want` at or below `highest` always resolves
+		// to a saved line (the first line whose number is >= want);
+		// only `want > highest` produces no line to run.
+		if want > highest {
+			findings = append(findings, Finding{
+				RuleID: "BASIC-STARTLINE-WITHIN-PROG", Severity: SeverityCosmetic,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message:  fmt.Sprintf("BASIC auto-RUN line %d is greater than the highest saved line %d; BASIC's NEXT-LINE-GE lookup will find no line to run", want, highest),
+				Citation: "rom-disasm:22136-22141",
+			})
+		}
 	})
 	return findings
 }

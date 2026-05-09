@@ -1012,19 +1012,25 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - Test sketch: for FT_SAM_BASIC, `dir[0xF2] in {0x00, 0xFF}`; if
   `0x00`, `dir[0xF3..0xF5]` is a valid line number.
 
-### BASIC-STARTLINE-WITHIN-PROG — Auto-RUN line is in the saved program
+### BASIC-STARTLINE-WITHIN-PROG — Auto-RUN line is at or below the highest saved line
 
 - What: If auto-RUN is enabled, the line number at 0xF3-0xF4 should
-  correspond to an actual line number in the program area.
-- Severity: cosmetic (warn-only — auto-RUN of a missing line just
-  errors with "Statement lost", not a corruption)
-- Source authority: empirical-convention
+  be at or below the highest line number in the program area. SAM
+  BASIC's RUN N uses NEXT-LINE-GE semantics (the lookup finds the
+  first line whose number is >= N), so RUN N at or below the lowest
+  saved line is the canonical "start from the beginning" idiom and
+  is not an error — only RUN N above the highest saved line genuinely
+  has no line to run.
+- Severity: cosmetic (warn-only)
+- Source authority: ROM (RUN command's line-lookup semantics)
 - Citation: ROM auto-RUN dispatch via `NEW PPC` sysvar after LOAD;
-  if line doesn't exist, BASIC errors. No code citation enforces
-  pre-LOAD validation.
+  line lookup uses NEXT-LINE-GE not LINE-EQ.
 - Dialect: all
-- Test sketch: walk program, collect line numbers, check
-  `dir[0xF3..0xF5]` is among them.
+- Test sketch: walk program, find the highest line number, warn if
+  `dir[0xF3..0xF5]` is strictly greater than it. (Iteration 1
+  REWORD: previously fired on "line not present in saved program",
+  which mis-categorised the 78% canonical `RUN 1, first-line=10`
+  pattern as a problem; SAM BASIC's RUN tolerates this.)
 
 ### BASIC-MGTFLAGS-20 — MGTFlags is typically 0x20 for BASIC files
 

@@ -251,12 +251,31 @@ func TestBasicStartLineWithinProgNegative(t *testing.T) {
 	// SAMBASICStartLine and ExecutionAddressMod16K share the same on-disk
 	// bytes 0xF3-0xF4. Raw() serialises ExecutionAddressMod16K, so we must
 	// set both fields to make WriteFileEntry persist the change correctly.
-	dj[0].SAMBASICStartLine = 99  // line 99 not in program (only line 10 exists)
+	// Iteration 1 REWORD: rule now fires only when StartLine > highest
+	// saved line. Program has line 10, so line 99 > 10 fires (NEXT-LINE-GE
+	// lookup finds nothing).
+	dj[0].SAMBASICStartLine = 99
 	dj[0].ExecutionAddressMod16K = 99
 	di.WriteFileEntry(dj, 0)
 	findings := checkBasicStartLineWithinProg(&CheckContext{Disk: di, Journal: di.DiskJournal()})
 	if len(findings) != 1 || findings[0].RuleID != "BASIC-STARTLINE-WITHIN-PROG" {
 		t.Fatalf("got %d findings, first=%+v; want 1 BASIC-STARTLINE-WITHIN-PROG", len(findings), findings)
+	}
+}
+
+func TestBasicStartLineWithinProgAcceptsRun1Idiom(t *testing.T) {
+	// Iteration 1 REWORD regression test: the canonical "RUN 1 with
+	// first line N>1" pattern (78% of corpus fires) must not fire.
+	// SAM BASIC's NEXT-LINE-GE lookup means RUN 1 starts at the first
+	// line whose number is >= 1 — i.e. the lowest saved line. This
+	// is the standard "start from the beginning" idiom, not an error.
+	di, dj := buildBasicDisk(t) // program has line 10; auto-RUN=10 by default
+	dj[0].SAMBASICStartLine = 1 // RUN 1: NEXT-LINE-GE picks up line 10
+	dj[0].ExecutionAddressMod16K = 1
+	di.WriteFileEntry(dj, 0)
+	findings := checkBasicStartLineWithinProg(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 0 {
+		t.Errorf("RUN 1 with first-line=10 (canonical idiom): %d findings; want 0", len(findings))
 	}
 }
 
