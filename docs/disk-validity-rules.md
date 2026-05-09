@@ -356,14 +356,35 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 ### DIR-ERASED-IS-ZERO — Erased slot is exactly Type==0
 
 - What: A slot with type byte 0 is erased / free. SAMDOS checks this
-  literally; bit 7 + low-5 zero is still erased.
-- Severity: structural
+  literally; bit 7 + low-5 zero is still erased. The rule fires on
+  slots where Type==0 but FirstSector.Track is non-zero — i.e. the
+  type byte says "free" but the filename / chain / SAM are still
+  populated. This is the canonical "DEL/ERASE leaves the file
+  recoverable" archaeological pattern.
+- Severity: inconsistency. The consumer side is well-defined:
+  `fdhf` (c.s:1133-1143) sees `(hl)==0` and treats the slot as
+  free, so the dir walk is not confused. But the orphaned
+  filename / FirstSector / SectorAddressMap disagree with the
+  type byte's "this slot is unused" claim — two views of the
+  same fact disagree (inconsistency), not "disk-walk invariant
+  violated" (structural). 43% of the corpus has at least one
+  such slot — every DEL/ERASE produces one — which is
+  irreconcilable with "structural disk corruption" framing;
+  structural should be reserved for things like CHAIN-NO-CYCLE
+  (3 disks).
 - Source authority: SAMDOS-code + Tech-Manual
 - Citation: `samdos/src/c.s:1133-1143` (`fdhf` — "TEST FOR FREE
   DIRECTORY SPACE"): `ld a,(hl); and a; jr nz,fdhd`.
   Tech Manual L4351-4354.
-- Dialect: all
-- Test sketch: slot is free iff `data[0x00] == 0`.
+- Dialect: all (MasterDOS DEL not independently verified; the
+  43% dialect-uniform fire rate strongly suggests it behaves the
+  same way, but worth a footnote if MasterDOS turns out to zero
+  the entire entry on DEL).
+- Test sketch: a used slot (`FirstSector.Track != 0`) must NOT have
+  `data[0x00] == 0`; if it does, the slot is in the recoverable-
+  DEL'd-file state — fire DIR-ERASED-IS-ZERO. A truly free slot
+  (`Type==0 && FirstSector.Track==0`) is the common case and
+  must not fire.
 
 ### DIR-NAME-PADDING — Filename is 10 bytes, space-padded ASCII
 

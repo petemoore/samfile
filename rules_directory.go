@@ -64,16 +64,33 @@ func checkDirTypeByteIsKnown(ctx *CheckContext) []Finding {
 }
 
 // ----- DIR-ERASED-IS-ZERO -----
-// Used() already encodes the rule but the catalog asks us to check the
-// inverse statement: any slot whose raw Type byte is exactly 0x00 but
-// whose other fields look populated (FirstSector non-zero) is suspicious.
-// Phase 3 implements only the forward check: a used slot must NOT have
-// Type == 0. (Empty Type 0 + Track 0 = legitimately free, which is the
-// common case.)
+// Iteration 2 DEMOTE + REWORD (structural → inconsistency). The rule
+// fires on slots where the type byte is 0 (so fdhf at c.s:1133-1143
+// treats it as free) but FirstSector.Track is non-zero (so name /
+// chain / SAM are still populated). That's the canonical
+// "DEL/ERASE leaves the file recoverable" archaeology: SAMDOS DEL
+// (and ROM ERASE) zero only the type byte, leaving the rest of the
+// dir entry intact. SAMDOS treats the slot as free per fdhf, so the
+// dir walk is well-defined — but the orphaned filename + chain
+// disagree with the type byte's "this slot is unused" claim. That's
+// "two views of the same fact disagree" → inconsistency, not
+// "disk-walk invariant violated" → structural.
+//
+// 43% of the corpus has at least one such slot. Keeping it at
+// structural drowns out genuine structural corruption (e.g.
+// CHAIN-NO-CYCLE, 3 disks).
+//
+// The message text is also reworded: the previous "used slot"
+// framing was self-contradictory (Used() returns true here, but
+// SAMDOS itself treats the slot as free), and obscured the
+// archaeological pattern. The new wording names the actual
+// signature ("type byte 0x00 (erased) but filename/chain are still
+// populated") and labels the pattern ("probably a DEL'd file with
+// recoverable header").
 func init() {
 	Register(Rule{
 		ID:          "DIR-ERASED-IS-ZERO",
-		Severity:    SeverityStructural,
+		Severity:    SeverityInconsistency,
 		Description: "a used directory slot has a non-zero type byte",
 		Citation:    "samdos/src/c.s:1133-1143",
 		Check:       checkDirErasedIsZero,
@@ -86,9 +103,9 @@ func checkDirErasedIsZero(ctx *CheckContext) []Finding {
 		if uint8(fe.Type) == 0 {
 			findings = append(findings, Finding{
 				RuleID:   "DIR-ERASED-IS-ZERO",
-				Severity: SeverityStructural,
+				Severity: SeverityInconsistency,
 				Location: SlotLocation(slot, fe.Name.String()),
-				Message:  "used slot has type byte 0x00, which is the erased-slot sentinel",
+				Message:  "slot has type byte 0x00 (erased) but filename/chain are still populated (probably a DEL'd file with recoverable header)",
 				Citation: "samdos/src/c.s:1133-1143",
 			})
 		}
