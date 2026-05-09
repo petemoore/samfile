@@ -7,7 +7,7 @@ import (
 	"github.com/petemoore/samfile/v3"
 )
 
-func cat(arguments map[string]interface{}) {
+func cat(arguments map[string]any) {
 	imageName := arguments["-i"].(string)
 	file := arguments["-f"].(string)
 	diskImage, err := samfile.Load(imageName)

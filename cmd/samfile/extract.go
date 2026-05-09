@@ -9,7 +9,7 @@ import (
 	"github.com/petemoore/samfile/v3"
 )
 
-func extract(arguments map[string]interface{}) {
+func extract(arguments map[string]any) {
 	imageName := arguments["-i"].(string)
 	target := "."
 	if arguments["-t"] != nil {
@@ -39,7 +39,7 @@ func extract(arguments map[string]interface{}) {
 			log.Printf("warning: could not extract %q: %v", filename, err)
 			continue
 		}
-		localFile := filepath.Join(target, strings.Replace(filename, string([]rune{os.PathSeparator}), "#", -1))
+		localFile := filepath.Join(target, strings.ReplaceAll(filename, string([]rune{os.PathSeparator}), "#"))
 		log.Printf("saving file %q from disk image %q to file %q", filename, imageName, localFile)
 		err = os.WriteFile(localFile, f.Body, 0666)
 		if err != nil {

@@ -9,7 +9,7 @@ import (
 	"github.com/petemoore/samfile/v3"
 )
 
-func add(arguments map[string]interface{}) {
+func add(arguments map[string]any) {
 	file := arguments["-f"].(string)
 	fileInfo, statError := os.Stat(file)
 	if statError != nil {

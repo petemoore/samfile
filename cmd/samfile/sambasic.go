@@ -9,7 +9,7 @@ import (
 	"github.com/petemoore/samfile/v3"
 )
 
-func basicToText(arguments map[string]interface{}) {
+func basicToText(_ map[string]any) {
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, os.Stdin); err != nil {
 		log.Fatal(err)
