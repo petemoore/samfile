@@ -37,3 +37,13 @@ func TestDetectDialectSamdos2BootFile(t *testing.T) {
 		t.Errorf("DetectDialect(samdos2 boot file) = %v; want samdos2", got)
 	}
 }
+
+func TestDetectDialectMasterDOSBootFile(t *testing.T) {
+	di := NewDiskImage()
+	if err := di.AddCodeFile("masterdos2", []byte{0xC9}, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	if got := DetectDialect(di); got != DialectMasterDOS {
+		t.Errorf("DetectDialect(masterdos2 boot file) = %v; want masterdos", got)
+	}
+}
