@@ -144,7 +144,14 @@ func Rules() []Rule {
 	return out
 }
 
-// CheckContext is defined in full in Task 5. Forward declaration so
-// Rule.Check's signature compiles. Will be expanded with Disk,
-// Journal, and Dialect fields.
-type CheckContext struct{}
+// CheckContext is the read-only environment passed to each Rule's
+// Check function. All disk inspection should go through ctx — Rules
+// must NOT call disk.DiskJournal() themselves (the journal is
+// computed once per Verify run and shared). If a future rule needs
+// another expensive derivation (e.g. a combined sector map), add
+// it as a field on CheckContext and memoise it in Verify.
+type CheckContext struct {
+	Disk    *DiskImage
+	Journal *DiskJournal
+	Dialect Dialect
+}

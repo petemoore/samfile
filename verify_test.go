@@ -139,3 +139,22 @@ func TestRegisterRejectsDuplicateID(t *testing.T) {
 	}()
 	Register(Rule{ID: "DUP", Severity: SeverityFatal, Description: "y", Citation: "x:2"})
 }
+
+func TestCheckContextShape(t *testing.T) {
+	di := NewDiskImage()
+	dj := di.DiskJournal()
+	ctx := &CheckContext{
+		Disk:    di,
+		Journal: dj,
+		Dialect: DialectSAMDOS2,
+	}
+	if ctx.Disk != di {
+		t.Errorf("ctx.Disk wrong")
+	}
+	if ctx.Journal != dj {
+		t.Errorf("ctx.Journal wrong")
+	}
+	if ctx.Dialect != DialectSAMDOS2 {
+		t.Errorf("ctx.Dialect = %v; want samdos2", ctx.Dialect)
+	}
+}
