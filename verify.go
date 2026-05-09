@@ -105,3 +105,46 @@ type Finding struct {
 	Message  string
 	Citation string
 }
+
+// Rule is a registered validity check. Check is invoked once per
+// Verify run and returns zero or more Findings. Rule values are
+// immutable after registration.
+type Rule struct {
+	ID          string // catalog-stable, e.g. "DISK-NOT-EMPTY"
+	Severity    Severity
+	Dialects    []Dialect // dialects the rule applies to; nil/empty = all
+	Description string    // one-line summary, used in human output
+	Citation    string    // file:line of the strongest evidence
+	Check       func(ctx *CheckContext) []Finding
+}
+
+// allRules is the package-private registry. Rules register at package
+// init time via Register; the order is preserved so Verify output is
+// deterministic.
+var allRules []Rule
+
+// Register adds rule to the package-wide rule registry. Panics if a
+// rule with the same ID is already registered (rule IDs must be
+// catalog-stable and unique). Intended to be called from init().
+func Register(rule Rule) {
+	for _, r := range allRules {
+		if r.ID == rule.ID {
+			panic("samfile: duplicate rule ID registered: " + rule.ID)
+		}
+	}
+	allRules = append(allRules, rule)
+}
+
+// Rules returns a copy of the registered rules in registration
+// order. Use this for inspection (e.g. CLI help, documentation
+// generators); Verify iterates allRules directly.
+func Rules() []Rule {
+	out := make([]Rule, len(allRules))
+	copy(out, allRules)
+	return out
+}
+
+// CheckContext is defined in full in Task 5. Forward declaration so
+// Rule.Check's signature compiles. Will be expanded with Disk,
+// Journal, and Dialect fields.
+type CheckContext struct{}

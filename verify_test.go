@@ -105,3 +105,37 @@ func TestFindingShape(t *testing.T) {
 		t.Errorf("Message and Citation should be populated")
 	}
 }
+
+func TestRegisterAndIterate(t *testing.T) {
+	// Snapshot the registry, clear it for this test, restore after.
+	saved := append([]Rule(nil), allRules...)
+	allRules = nil
+	defer func() { allRules = saved }()
+
+	r1 := Rule{ID: "TEST-A", Severity: SeverityCosmetic, Description: "a", Citation: "x:1"}
+	r2 := Rule{ID: "TEST-B", Severity: SeverityFatal, Description: "b", Citation: "x:2"}
+	Register(r1)
+	Register(r2)
+
+	got := Rules()
+	if len(got) != 2 {
+		t.Fatalf("Rules() returned %d entries; want 2", len(got))
+	}
+	if got[0].ID != "TEST-A" || got[1].ID != "TEST-B" {
+		t.Errorf("Rules() out of registration order: %+v", got)
+	}
+}
+
+func TestRegisterRejectsDuplicateID(t *testing.T) {
+	saved := append([]Rule(nil), allRules...)
+	allRules = nil
+	defer func() { allRules = saved }()
+
+	Register(Rule{ID: "DUP", Severity: SeverityFatal, Description: "x", Citation: "x:1"})
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Register with duplicate ID did not panic")
+		}
+	}()
+	Register(Rule{ID: "DUP", Severity: SeverityFatal, Description: "y", Citation: "x:2"})
+}
