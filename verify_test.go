@@ -46,3 +46,40 @@ func TestDialectString(t *testing.T) {
 		}
 	}
 }
+
+func TestLocationDiskWide(t *testing.T) {
+	loc := DiskWideLocation()
+	if !loc.IsDiskWide() {
+		t.Errorf("DiskWideLocation().IsDiskWide() = false; want true")
+	}
+	if loc.Slot != -1 || loc.Sector != nil || loc.ByteOffset != -1 || loc.Filename != "" {
+		t.Errorf("DiskWideLocation() should leave all fields unset; got %+v", loc)
+	}
+}
+
+func TestLocationSlot(t *testing.T) {
+	loc := SlotLocation(3, "IN")
+	if loc.IsDiskWide() {
+		t.Errorf("SlotLocation(3).IsDiskWide() = true; want false")
+	}
+	if loc.Slot != 3 {
+		t.Errorf("Slot = %d; want 3", loc.Slot)
+	}
+	if loc.Filename != "IN" {
+		t.Errorf("Filename = %q; want %q", loc.Filename, "IN")
+	}
+	if loc.Sector != nil || loc.ByteOffset != -1 {
+		t.Errorf("SlotLocation should leave sector + byte unset; got %+v", loc)
+	}
+}
+
+func TestLocationSector(t *testing.T) {
+	sec := &Sector{Track: 6, Sector: 3}
+	loc := SectorLocation(2, "stub", sec, 8)
+	if loc.IsDiskWide() {
+		t.Errorf("SectorLocation.IsDiskWide() = true; want false")
+	}
+	if loc.Slot != 2 || loc.Filename != "stub" || loc.Sector != sec || loc.ByteOffset != 8 {
+		t.Errorf("SectorLocation fields wrong; got %+v", loc)
+	}
+}

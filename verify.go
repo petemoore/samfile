@@ -54,3 +54,37 @@ func (d Dialect) String() string {
 	}
 	return "unknown"
 }
+
+// Location pinpoints a Finding on the disk. Construct one via the
+// DiskWideLocation, SlotLocation, or SectorLocation factories — they
+// set the "not applicable" sentinels correctly. The zero value of
+// Location is NOT a valid disk-wide location (Slot=0 is a real slot).
+type Location struct {
+	Slot       int     // -1 if not applicable, else 0..79
+	Sector     *Sector // nil if not applicable
+	ByteOffset int     // -1 if not applicable, else byte offset within Sector
+	Filename   string  // copied from Slot's directory entry when known, for messages
+}
+
+// DiskWideLocation returns a Location for findings that apply to the
+// disk image as a whole (no specific slot or sector).
+func DiskWideLocation() Location {
+	return Location{Slot: -1, Sector: nil, ByteOffset: -1}
+}
+
+// SlotLocation returns a Location for findings tied to a specific
+// directory slot but not a specific sector or byte.
+func SlotLocation(slot int, filename string) Location {
+	return Location{Slot: slot, Sector: nil, ByteOffset: -1, Filename: filename}
+}
+
+// SectorLocation returns a Location for findings tied to a specific
+// byte within a specific sector of a specific file.
+func SectorLocation(slot int, filename string, sector *Sector, byteOffset int) Location {
+	return Location{Slot: slot, Sector: sector, ByteOffset: byteOffset, Filename: filename}
+}
+
+// IsDiskWide reports whether loc has no slot, sector, or byte set.
+func (loc Location) IsDiskWide() bool {
+	return loc.Slot == -1 && loc.Sector == nil && loc.ByteOffset == -1
+}
