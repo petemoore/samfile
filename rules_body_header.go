@@ -82,11 +82,17 @@ func checkBodyTypeMatchesDir(ctx *CheckContext) []Finding {
 }
 
 // ----- BODY-EXEC-DIV16K-MATCHES-DIR -----
+// Scoped to FT_CODE only. Dir bytes 0xF2-0xF4 are repurposed for
+// non-CODE file types: FT_SAM_BASIC stores the auto-RUN line number
+// there (0x00 marker + 16-bit line), while samfile's CreateHeader
+// (samfile.go:921-927) emits 0xFF for body[5] on every non-CODE
+// file regardless of dir contents. The "mirror" only holds for
+// CODE files where both sides encode the same exec-address.
 func init() {
 	Register(Rule{
 		ID:          "BODY-EXEC-DIV16K-MATCHES-DIR",
 		Severity:    SeverityStructural,
-		Description: "body header ExecutionAddressDiv16K (byte 5) equals dir-entry ExecutionAddressDiv16K",
+		Description: "FT_CODE body-header ExecutionAddressDiv16K (byte 5) equals dir-entry ExecutionAddressDiv16K",
 		Citation:    "rom-disasm:22471-22484",
 		Check:       checkBodyExecDiv16KMatchesDir,
 	})
@@ -95,6 +101,9 @@ func init() {
 func checkBodyExecDiv16KMatchesDir(ctx *CheckContext) []Finding {
 	var findings []Finding
 	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		if fe.Type != FT_CODE {
+			return
+		}
 		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
 		if err != nil {
 			return
@@ -109,11 +118,15 @@ func checkBodyExecDiv16KMatchesDir(ctx *CheckContext) []Finding {
 }
 
 // ----- BODY-EXEC-MOD16K-LO-MATCHES-DIR -----
+// Scoped to FT_CODE only — same reasoning as BODY-EXEC-DIV16K-MATCHES-DIR.
+// For non-CODE files, dir's ExecutionAddressMod16K holds the auto-RUN
+// line (BASIC) or other type-specific data while body[6] is always
+// 0xFF (CreateHeader's non-FT_CODE default).
 func init() {
 	Register(Rule{
 		ID:          "BODY-EXEC-MOD16K-LO-MATCHES-DIR",
 		Severity:    SeverityInconsistency,
-		Description: "body header ExecutionAddressMod16KLo (byte 6) equals low byte of dir-entry ExecutionAddressMod16K",
+		Description: "FT_CODE body-header ExecutionAddressMod16KLo (byte 6) equals low byte of dir-entry ExecutionAddressMod16K",
 		Citation:    "rom-disasm:22472",
 		Check:       checkBodyExecMod16KLoMatchesDir,
 	})
@@ -122,6 +135,9 @@ func init() {
 func checkBodyExecMod16KLoMatchesDir(ctx *CheckContext) []Finding {
 	var findings []Finding
 	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
+		if fe.Type != FT_CODE {
+			return
+		}
 		hdr, err := bodyHeaderRaw(ctx.Disk, fe)
 		if err != nil {
 			return

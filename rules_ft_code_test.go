@@ -87,10 +87,26 @@ func TestCodeFileTypeInfoEmptyPositive(t *testing.T) {
 
 func TestCodeFileTypeInfoEmptyNegative(t *testing.T) {
 	di, dj := cleanSingleFileDisk(t, "TEST", 100)
-	dj[0].FileTypeInfo[5] = 0xAA
+	dj[0].FileTypeInfo[5] = 0xAA // neither 0x00 (samfile) nor 0xFF (ROM SAVE)
 	di.WriteFileEntry(dj, 0)
 	findings := checkCodeFileTypeInfoEmpty(&CheckContext{Disk: di, Journal: di.DiskJournal()})
 	if len(findings) != 1 || findings[0].RuleID != "CODE-FILETYPEINFO-EMPTY" {
 		t.Fatalf("got %d findings, first=%+v; want 1 CODE-FILETYPEINFO-EMPTY", len(findings), findings)
+	}
+}
+
+func TestCodeFileTypeInfoEmptyAcceptsAllFF(t *testing.T) {
+	// Real ROM SAMDOS-2 SAVE 0xFF-fills FileTypeInfo via HDCLP2
+	// (rom-disasm:22076-22080); observed on the M0 boot disk's slot-4
+	// OUT entry. This is a legitimate "unused" marker — the rule must
+	// not fire when every byte is 0xFF.
+	di, dj := cleanSingleFileDisk(t, "TEST", 100)
+	for i := range dj[0].FileTypeInfo {
+		dj[0].FileTypeInfo[i] = 0xFF
+	}
+	di.WriteFileEntry(dj, 0)
+	findings := checkCodeFileTypeInfoEmpty(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 0 {
+		t.Errorf("FileTypeInfo = 0xFF × 11 (ROM SAMDOS-2 convention): %d findings; want 0", len(findings))
 	}
 }

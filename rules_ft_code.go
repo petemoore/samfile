@@ -111,11 +111,24 @@ func checkCodeExecWithinLoadedRange(ctx *CheckContext) []Finding {
 }
 
 // ----- CODE-FILETYPEINFO-EMPTY -----
+// FileTypeInfo (dir 0xDD-0xE7) is unused for FT_CODE. Two conventions
+// are observed in the wild:
+//
+//   - 0x00 × 11 — samfile's AddCodeFile leaves the struct zero-init.
+//   - 0xFF × 11 — real ROM SAMDOS-2 SAVE 0xFF-fills 14 bytes from
+//     dir offset 0xDC via HDCLP2 (rom-disasm:22076-22080), which
+//     covers MGTFlags + the entire FileTypeInfo region + the first
+//     two bytes of ReservedA.
+//
+// Both are legitimate "unused" markers. The rule warns only when a
+// byte is in NEITHER convention — i.e. anything other than 0x00 or
+// 0xFF, which would suggest the slot was once a different file type
+// whose FileTypeInfo bytes weren't cleared on overwrite.
 func init() {
 	Register(Rule{
 		ID:          "CODE-FILETYPEINFO-EMPTY",
 		Severity:    SeverityCosmetic,
-		Description: "FT_CODE file's FileTypeInfo (dir 0xDD-0xE7) is all zero (samfile convention)",
+		Description: "FT_CODE file's FileTypeInfo (dir 0xDD-0xE7) is uniformly 0x00 (samfile) or 0xFF (ROM SAMDOS-2) — unused-marker convention",
 		Citation:    "samfile.go:798-827",
 		Check:       checkCodeFileTypeInfoEmpty,
 	})
@@ -128,12 +141,12 @@ func checkCodeFileTypeInfoEmpty(ctx *CheckContext) []Finding {
 			return
 		}
 		for _, b := range fe.FileTypeInfo {
-			if b != 0 {
+			if b != 0x00 && b != 0xFF {
 				findings = append(findings, Finding{
 					RuleID:   "CODE-FILETYPEINFO-EMPTY",
 					Severity: SeverityCosmetic,
 					Location: SlotLocation(slot, fe.Name.String()),
-					Message:  "CODE file has non-zero FileTypeInfo (dir 0xDD-0xE7) — samfile leaves these zero",
+					Message:  fmt.Sprintf("CODE file has 0x%02x in FileTypeInfo (dir 0xDD-0xE7) — neither samfile's 0x00 nor ROM SAVE's 0xFF unused-marker", b),
 					Citation: "samfile.go:798-827",
 				})
 				return // one finding per slot

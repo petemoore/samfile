@@ -90,6 +90,39 @@ func TestBodyExecMod16KLoMatchesDirNegative(t *testing.T) {
 	}
 }
 
+func TestBodyExecDiv16KMatchesDirSkipsNonCode(t *testing.T) {
+	// Morph the CODE slot into a BASIC-like one: Type=FT_SAM_BASIC and
+	// dir's exec bytes set to BASIC's auto-RUN pattern. Body byte 5
+	// remains 0xFF (samfile's non-FT_CODE CreateHeader default) which
+	// would trip the rule under all-types semantics. With FT_CODE
+	// scoping the rule must skip this slot.
+	di, dj := cleanSingleFileDisk(t, "TEST", 100)
+	dj[0].Type = FT_SAM_BASIC
+	dj[0].ExecutionAddressDiv16K = 0x00 // BASIC auto-RUN marker
+	dj[0].ExecutionAddressMod16K = 10   // line number
+	di.WriteFileEntry(dj, 0)
+	findings := checkBodyExecDiv16KMatchesDir(&CheckContext{
+		Disk: di, Journal: di.DiskJournal(),
+	})
+	if len(findings) != 0 {
+		t.Errorf("FT_SAM_BASIC slot: %d findings; want 0 (rule must skip non-CODE)", len(findings))
+	}
+}
+
+func TestBodyExecMod16KLoMatchesDirSkipsNonCode(t *testing.T) {
+	di, dj := cleanSingleFileDisk(t, "TEST", 100)
+	dj[0].Type = FT_SAM_BASIC
+	dj[0].ExecutionAddressDiv16K = 0x00
+	dj[0].ExecutionAddressMod16K = 10
+	di.WriteFileEntry(dj, 0)
+	findings := checkBodyExecMod16KLoMatchesDir(&CheckContext{
+		Disk: di, Journal: di.DiskJournal(),
+	})
+	if len(findings) != 0 {
+		t.Errorf("FT_SAM_BASIC slot: %d findings; want 0 (rule must skip non-CODE)", len(findings))
+	}
+}
+
 // ----- BODY-PAGES-MATCHES-DIR -----
 
 func TestBodyPagesMatchesDirPositive(t *testing.T) {
