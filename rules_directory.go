@@ -235,7 +235,7 @@ func checkDirSectorsMatchesChain(ctx *CheckContext) []Finding {
 				RuleID:   "DIR-SECTORS-MATCHES-CHAIN",
 				Severity: SeverityStructural,
 				Location: SlotLocation(slot, fe.Name.String()),
-				Message:  fmt.Sprintf("dir Sectors=%d, but chain walk visited %d sectors", fe.Sectors, count),
+				Message:  fmt.Sprintf("samfile reads exactly fe.Sectors=%d chunks; chain walk visited %d sectors to the (0,0) terminator — File() returns garbage past the chain end or silently truncates depending on direction", fe.Sectors, count),
 				Citation: "samfile.go:743-754",
 			})
 		}

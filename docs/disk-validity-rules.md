@@ -459,7 +459,25 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - What: The count at 0x0B-0x0C must equal the number of sectors
   visited when walking the chain from FirstSector to the (0,0)
   terminator.
-- Severity: structural
+- Severity: structural (iter-3 kept structural and reworded the
+  finding message: the structural tier is "disk-walk invariant;
+  violation produces undefined behaviour or sector reuse" — and
+  samfile's `(*DiskImage).File` at `samfile.go:743-754` reads
+  exactly `fe.Sectors` chunks without consulting the (0,0)
+  terminator, so a too-large `Sectors` causes `File()` to walk
+  past the terminator into another file's chain (garbage reads),
+  while a too-small `Sectors` silently truncates the file. SAMDOS
+  itself ignores `Sectors` on LOAD — `dos`/`dos8` is terminator-
+  driven (`samdos/src/b.s:104-110`) — and increments it only on
+  SAVE (`fnfs` at `samdos/src/c.s:946-948`), so the rule is
+  samfile-consumer-authority not SAMDOS-authority; but the
+  consumer-side "undefined behaviour" is exactly what the
+  structural tier exists to flag. The message is reworded to
+  surface the consumer hazard so a samfile user can see why the
+  finding matters. Corpus evidence: 4,711 fires / 320 disks (40%);
+  291/320 are also in the CROSS-NO-SECTOR-OVERLAP / CHAIN-MATCHES-
+  SAM cluster, 29 fire independently and are exactly the disks
+  where Sectors-vs-chain disagreement is the only signal.)
 - Source authority: samfile-implicit
 - Citation: `samfile.go:743-754` reads `fe.Sectors` chunks and stops:
 
