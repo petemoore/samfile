@@ -96,9 +96,9 @@ func checkBasicFileTypeInfoTriplets(ctx *CheckContext) []Finding {
 
 // ----- BASIC-VARS-GAP-INVARIANT -----
 // Empirically, SAMDOS-2 BASIC files have SAVARS-NVARS == 604, MasterDOS
-// BASIC files have SAVARS-NVARS == 2156 (sam-basic-save-format.md, 161-
-// disk scan). Cosmetic; depends on detected dialect — on Unknown, accept
-// either value.
+// BASIC files have SAVARS-NVARS == 2156 (sam-basic-save-format.md, scan
+// of 161 disks). Cosmetic; depends on detected dialect — on Unknown,
+// accept either value.
 func init() {
 	Register(Rule{
 		ID:          "BASIC-VARS-GAP-INVARIANT",
@@ -127,7 +127,7 @@ func checkBasicVarsGapInvariant(ctx *CheckContext) []Finding {
 			if gap == 604 || gap == 2156 {
 				return
 			}
-			expected = 604 // for the message; flag the rarer of the two
+			expected = 604 // for the message; prefer the SAMDOS-2 canonical value
 		}
 		if gap != expected {
 			findings = append(findings, Finding{

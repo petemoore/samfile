@@ -62,7 +62,7 @@ func checkZXSnapLoadAddr16384(ctx *CheckContext) []Finding {
 			findings = append(findings, Finding{
 				RuleID: "ZXSNAP-LOAD-ADDR-16384", Severity: SeverityStructural,
 				Location: SlotLocation(slot, fe.Name.String()),
-				Message:  fmt.Sprintf("ZX snapshot start address = 0x%05x; expected 0x04000 (16384)", fe.StartAddress()),
+				Message:  fmt.Sprintf("ZX snapshot start address = 0x%05x; expected 0x4000 (16384)", fe.StartAddress()),
 				Citation: "samdos/src/d.s:660-663",
 			})
 		}
