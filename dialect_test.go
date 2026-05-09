@@ -1,6 +1,7 @@
 package samfile
 
 import (
+	"os"
 	"testing"
 )
 
@@ -151,5 +152,29 @@ func TestDetectDialectConflictReturnsUnknown(t *testing.T) {
 
 	if got := DetectDialect(di); got != DialectUnknown {
 		t.Errorf("DetectDialect(conflict samdos2 vs masterdos) = %v; want unknown", got)
+	}
+}
+
+func TestDetectDialectETrackerCorpus(t *testing.T) {
+	// Smoke test against a real-world MGT image. We do not assert a
+	// specific dialect — we just assert DetectDialect returns one of
+	// the four documented values without panicking. This protects
+	// against nil-pointer paths in bootFileDialect / mgtFlagsDialect
+	// that fabricated disks might not exercise.
+	const path = "testdata/ETrackerv1.2.mgt"
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("corpus image not present (%v); skipping", err)
+	}
+	di, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q): %v", path, err)
+	}
+	got := DetectDialect(di)
+	switch got {
+	case DialectUnknown, DialectSAMDOS1, DialectSAMDOS2, DialectMasterDOS:
+		// All four are acceptable; log for diagnostic value.
+		t.Logf("DetectDialect(%s) = %s", path, got)
+	default:
+		t.Errorf("DetectDialect(%s) = %v; not a documented Dialect value", path, got)
 	}
 }
