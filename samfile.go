@@ -370,11 +370,11 @@ func Load(filename string) (*DiskImage, error) {
 	return &d, nil
 }
 
-// Save writes the whole 819200-byte image to filename, with mode 0400
+// Save writes the whole 819200-byte image to filename, with mode 0600
 // (read-only for the owner). The destination is overwritten if it
 // already exists.
 func (di *DiskImage) Save(filename string) error {
-	err := os.WriteFile(filename, di[:], 0400)
+	err := os.WriteFile(filename, di[:], 0600)
 	if err != nil {
 		return fmt.Errorf("error: can't write disk image %q: %v", filename, err)
 	}
