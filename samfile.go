@@ -87,7 +87,7 @@ func (file *File) Output() {
 }
 
 func (fileHeader *FileHeader) Start() uint32 {
-	return uint32(fileHeader.PageOffset&0x3fff) | uint32(fileHeader.StartPage&0x1f+1)<<14
+	return uint32(fileHeader.PageOffset&0x3fff) | uint32((fileHeader.StartPage&0x1f)+1)<<14
 }
 
 func (fileHeader *FileHeader) Length() uint32 {
@@ -298,10 +298,10 @@ func (fe *FileEntry) Raw() [0x100]byte {
 	raw[0xee] = byte((fe.StartAddressPageOffset >> 8) & 0xff)
 	raw[0xef] = fe.Pages
 	raw[0xf0] = byte(fe.LengthMod16K & 0xff)
-	raw[0xf1] = byte((fe.LengthMod16K) >> 8 & 0xff)
+	raw[0xf1] = byte((fe.LengthMod16K >> 8) & 0xff)
 	raw[0xf2] = fe.ExecutionAddressDiv16K
 	raw[0xf3] = byte(fe.ExecutionAddressMod16K & 0xff)
-	raw[0xf4] = byte((fe.ExecutionAddressMod16K) >> 8 & 0xff)
+	raw[0xf4] = byte((fe.ExecutionAddressMod16K >> 8) & 0xff)
 	// raw[0xf5]..raw[0xff]
 	for i := 0; i < 0x0b; i++ {
 		raw[i+0xf5] = fe.ReservedB[i]
@@ -409,7 +409,7 @@ func (fe *FileEntry) ExecutionAddress() uint32 {
 }
 
 func (fe *FileEntry) StartAddress() uint32 {
-	return uint32(fe.StartAddressPageOffset&0x3fff) | uint32(fe.StartAddressPage&0x1f+1)<<14
+	return uint32(fe.StartAddressPageOffset&0x3fff) | uint32((fe.StartAddressPage&0x1f)+1)<<14
 }
 
 func (fe *FileEntry) Length() uint32 {
