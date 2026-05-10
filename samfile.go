@@ -392,16 +392,28 @@ func (fe *FileEntry) Output() error {
 	return nil
 }
 
+// pageFormLength decodes a 19-bit length stored in SAM Coupé "PAGEFORM":
+// byte 0 is a page count (16384 bytes per page); bytes 1-2 are a
+// little-endian 16-bit address in section C (0x8000-0xBFFF) whose low
+// 14 bits carry the in-page offset (bit 15 is always 1 by SCF;RR H,
+// bit 14 always 0). The linear length is therefore
+// page * 16384 + (raw_addr & 0x3fff). See ROM disasm RDTHREE
+// (sam-coupe_rom-v3.0_annotated-disassembly.txt:7654-7659) and PAGEFORM
+// (sam-coupe_rom-v3.0_annotated-disassembly.txt:7578-7589).
+func pageFormLength(b0, b1, b2 byte) uint32 {
+	return uint32(b0)*16384 + uint32(uint16(b1)|uint16(b2)<<8)&0x3fff
+}
+
 func (fe *FileEntry) ProgramLength() uint32 {
-	return uint32(fe.FileTypeInfo[0])<<16 | uint32(fe.FileTypeInfo[1]) | uint32(fe.FileTypeInfo[2])<<8
+	return pageFormLength(fe.FileTypeInfo[0], fe.FileTypeInfo[1], fe.FileTypeInfo[2])
 }
 
 func (fe *FileEntry) NumericVariableOffset() uint32 {
-	return uint32(fe.FileTypeInfo[3])<<16 | uint32(fe.FileTypeInfo[4]) | uint32(fe.FileTypeInfo[5])<<8
+	return pageFormLength(fe.FileTypeInfo[3], fe.FileTypeInfo[4], fe.FileTypeInfo[5])
 }
 
 func (fe *FileEntry) StringArrayVariableOffset() uint32 {
-	return uint32(fe.FileTypeInfo[6])<<16 | uint32(fe.FileTypeInfo[7]) | uint32(fe.FileTypeInfo[8])<<8
+	return pageFormLength(fe.FileTypeInfo[6], fe.FileTypeInfo[7], fe.FileTypeInfo[8])
 }
 
 func (fe *FileEntry) ExecutionAddress() uint32 {

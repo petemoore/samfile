@@ -5,6 +5,98 @@ import (
 	"testing"
 )
 
+// TestFileTypeInfoPageFormDecoding pins down the SAM Coupé "PAGEFORM"
+// encoding of the three SAM-BASIC FileTypeInfo length fields.
+//
+// The ROM's RDTHREE helper at sam-coupe_rom-v3.0_annotated-disassembly.txt:
+// 7654-7659 reads three bytes from a directory entry into Z80 registers
+// (C, E, D) — i.e. byte 0 → page register, bytes 1-2 → little-endian
+// 16-bit address. PAGEFORM (sam-coupe_rom-v3.0_annotated-disassembly.txt:
+// 7578-7589) then treats that as a 19-bit linear value: page * 16384 +
+// (address - 0x8000), with bit 15 of the address always 1 (set by SCF;
+// RR H) and bit 14 always 0. So the linear length is
+//
+//     page*16384 + (raw_addr & 0x3fff)
+//
+// Tech Manual L4370-4382 names the three fields ("program length
+// excluding variables", "...plus numeric variables", "...plus numeric
+// variables and the gap before string and array variables") but is
+// silent on the byte encoding; the ROM disasm resolves the ambiguity.
+//
+// Falsification fixtures: bytes captured directly from real SAMDOS-
+// written BASIC files on disks downloaded from
+// ftp.nvg.ntnu.no/pub/sam-coupe/disks/utils/. Each file's third length
+// (PROG+NVARS+GAP) must be ≤ the file's total Length, and for programs
+// with no string/array variables it equals Length exactly.
+func TestFileTypeInfoPageFormDecoding(t *testing.T) {
+	cases := []struct {
+		name        string
+		info        [11]byte
+		fileLength  uint32
+		wantProgLen uint32
+		wantNumVar  uint32
+		wantStrArr  uint32
+	}{
+		{
+			name:        "Auto Font (FontLoader.dsk, no string/array vars)",
+			info:        [11]byte{0x01, 0xc3, 0x8c, 0x01, 0x0d, 0x8e, 0x01, 0x1f, 0x8f, 0x20, 0xff},
+			fileLength:  20255,
+			wantProgLen: 19651,
+			wantNumVar:  19981,
+			wantStrArr:  20255,
+		},
+		{
+			name:        "Shredder (FileShredderv1.2.dsk, no string/array vars)",
+			info:        [11]byte{0x00, 0xbf, 0x9b, 0x00, 0x3a, 0x9c, 0x00, 0x1b, 0x9e},
+			fileLength:  7707,
+			wantProgLen: 7103,
+			wantNumVar:  7226,
+			wantStrArr:  7707,
+		},
+		{
+			name:        "AUTOCOMMS (CommsLoader.dsk)",
+			info:        [11]byte{0x00, 0x22, 0x9f, 0x00, 0x30, 0xa0, 0x00, 0x7e, 0xa1},
+			fileLength:  8861,
+			wantProgLen: 7970,
+			wantNumVar:  8240,
+			wantStrArr:  8574,
+		},
+		{
+			name:        "synthetic page=0, addr=0x8000",
+			info:        [11]byte{0x00, 0x00, 0x80, 0x00, 0x00, 0x80, 0x00, 0x00, 0x80},
+			wantProgLen: 0,
+			wantNumVar:  0,
+			wantStrArr:  0,
+		},
+		{
+			name:        "synthetic page=31, addr=0xBFFF (max)",
+			info:        [11]byte{0x1f, 0xff, 0xbf, 0x1f, 0xff, 0xbf, 0x1f, 0xff, 0xbf},
+			wantProgLen: 0x7FFFF,
+			wantNumVar:  0x7FFFF,
+			wantStrArr:  0x7FFFF,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fe := &FileEntry{FileTypeInfo: c.info}
+			if got := fe.ProgramLength(); got != c.wantProgLen {
+				t.Errorf("ProgramLength = %d; want %d", got, c.wantProgLen)
+			}
+			if got := fe.NumericVariableOffset(); got != c.wantNumVar {
+				t.Errorf("NumericVariableOffset = %d; want %d", got, c.wantNumVar)
+			}
+			if got := fe.StringArrayVariableOffset(); got != c.wantStrArr {
+				t.Errorf("StringArrayVariableOffset = %d; want %d", got, c.wantStrArr)
+			}
+			if c.fileLength != 0 && fe.ProgramLength() > c.fileLength {
+				t.Errorf("sanity: ProgramLength %d > file Length %d (impossible)",
+					fe.ProgramLength(), c.fileLength)
+			}
+		})
+	}
+}
+
+
 // TestAddCodeFile8000HFormPageOffset asserts that AddCodeFile stores the
 // page offset in 8000H-BFFFH form, so disks built with samfile load at
 // the correct address when read by SAMDOS.
