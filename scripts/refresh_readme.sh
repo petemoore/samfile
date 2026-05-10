@@ -1,5 +1,6 @@
 #!/bin/bash -eu
 cd "$(dirname "${0}")"/..
+NEW_VERSION="${1}"
 VALID_FORMAT='samfile .* revision.*'
 TEMP_SAMFILE_HELP="$(mktemp -t samfile-help-text.XXXXXXXXXX)"
 TEMP_SAMFILE_README="$(mktemp -t samfile-readme.XXXXXXXXXX)"
@@ -12,7 +13,7 @@ sed -e "
    //!d
    /^${VALID_FORMAT}/d;r ${TEMP_SAMFILE_HELP}
    /^\`\`\`\$/d
-" README.md > "${TEMP_SAMFILE_README}"
+   " README.md | sed 's/\(github\.com\/petemoore\/samfile\/v\)[0-9][0-9]*\(\/cmd\/samfile@v\)[0-9.]*/\1'"${NEW_VERSION%%.*}\\2${NEW_VERSION}/g" > "${TEMP_SAMFILE_README}"
 cat "${TEMP_SAMFILE_README}" > README.md
 rm "${TEMP_SAMFILE_BINARY}"
 rm "${TEMP_SAMFILE_README}"

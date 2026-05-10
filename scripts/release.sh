@@ -20,8 +20,8 @@ if [ -z "${1}" ]; then
   exit 1
 fi
 
-VALID_FORMAT='^[1-9][0-9]*\.\(0\|[1-9][0-9]*\)\.\(0\|[1-9]\)\([0-9]*alpha[1-9][0-9]*\|[0-9]*\)$'
-FORMAT_EXPLANATION='should be "<a>.<b>.<c>" OR "<a>.<b>.<c>alpha<d>" where a>=1, b>=0, c>=0, d>=1 and a,b,c,d are integers, with no leading zeros'
+VALID_FORMAT='^[1-9][0-9]*\.\(0\|[1-9][0-9]*\)\.\(0\|[1-9][0-9]*\)$'
+FORMAT_EXPLANATION='should be "<a>.<b>.<c>" where a>=1, b>=0, c>=0 and a,b,c are integers, with no leading zeros'
 
 if ! echo "${NEW_VERSION}" | grep -q "${VALID_FORMAT}"; then
   echo "Release version '${NEW_VERSION}' not allowed (${FORMAT_EXPLANATION})" >&2
@@ -49,29 +49,25 @@ if [ -n "$modified" ]; then
   exit 66
 fi
 
-# ******** If making a NON-alpha release only **********
 # Check that the current HEAD is also the tip of the official repo main
 # branch. If the commits match, it does not matter what the local branch
 # name is, or even if we have a detached head.
-if ! echo "${NEW_VERSION}" | grep -q "alpha"; then
-  remoteMasterSha="$(git ls-remote "${OFFICIAL_GIT_REPO}" main | cut -f1)"
-  localSha="$(git rev-parse HEAD)"
-  if [ "${remoteMasterSha}" != "${localSha}" ]; then
-    echo "Locally, you are on commit ${localSha}."
-    echo "The remote petemoore/samfile repo main branch is on commit ${remoteMasterSha}."
-    echo "Make sure to git push/pull so that they both point to the same commit."
-    exit 67
-  fi
+remoteMasterSha="$(git ls-remote "${OFFICIAL_GIT_REPO}" main | cut -f1)"
+localSha="$(git rev-parse HEAD)"
+if [ "${remoteMasterSha}" != "${localSha}" ]; then
+  echo "Locally, you are on commit ${localSha}."
+  echo "The remote petemoore/samfile repo main branch is on commit ${remoteMasterSha}."
+  echo "Make sure to git push/pull so that they both point to the same commit."
+  exit 67
 fi
 
 git tag -s "v${NEW_VERSION}" -m "Release ${NEW_VERSION}"
 git push "${OFFICIAL_GIT_REPO}" "+refs/tags/v${NEW_VERSION}:refs/tags/v${NEW_VERSION}"
 
-scripts/refresh_readme.sh
+scripts/refresh_readme.sh "${NEW_VERSION}"
+scripts/refresh_major_version_in_go_code.sh "${NEW_VERSION}"
 git add README.md
+git add **/*.go
 git commit -m "Refreshed README with samfile output from v${NEW_VERSION}"
-# only ensure main is updated if it is a non-alpha release
-if ! echo "${NEW_VERSION}" | grep -q "alpha"; then
-  git push "${OFFICIAL_GIT_REPO}" "+HEAD:refs/heads/main"
-  git fetch "${OFFICIAL_GIT_REPO}"
-fi
+git push "${OFFICIAL_GIT_REPO}" "+HEAD:refs/heads/main"
+git fetch "${OFFICIAL_GIT_REPO}"
