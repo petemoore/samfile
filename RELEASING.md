@@ -10,9 +10,9 @@ The `scripts/release.sh` helper takes care of step 1 (and the post-tag README re
 
 ## Prerequisites
 
-- Local clone on `master`, fully up to date with `origin/master`.
+- Local clone on `main`, fully up to date with `origin/main`.
 - Working tree clean (no modified or untracked files).
-- All work intended for this release has been merged into `master` via PR (CI is the gate).
+- All work intended for this release has been merged into `main` via PR (CI is the gate).
 - A GPG key configured for signed tags (`git config user.signingkey <KEY-ID>`).
 
 ## Step 1 — tag the release
@@ -26,7 +26,7 @@ For an alpha release, use the `X.Y.ZalphaN` form (e.g. `3.1.0alpha1`). The scrip
 - The version string isn't `X.Y.Z` or `X.Y.ZalphaN`.
 - A `vX.Y.Z` tag already exists on `origin`.
 - The working tree isn't clean.
-- Local `HEAD` isn't at `origin/master` (non-alpha only).
+- Local `HEAD` isn't at `origin/main` (non-alpha only).
 
 What it does on success:
 
@@ -34,7 +34,7 @@ What it does on success:
 - Pushes the tag to `origin`.
 - Runs `scripts/refresh_readme.sh` to regenerate the `samfile --help` block in `README.md` with the new version banner.
 - Commits the README change as `Refreshed README with samfile output from vX.Y.Z`.
-- Pushes that commit to `origin/master` (non-alpha only).
+- Pushes that commit to `origin/main` (non-alpha only).
 
 ## Step 2 — GitHub Actions
 
@@ -63,8 +63,6 @@ A typical samfile release-notes structure:
 - Bug-fix / feature sections, each with a short rationale and citations to the Tech Manual / ROM disasm where relevant.
 - Breaking changes, if any, plus migration guidance.
 - Roadmap / known limitations.
-
-## Verifying the release
 
 After publishing:
 

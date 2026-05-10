@@ -50,15 +50,15 @@ if [ -n "$modified" ]; then
 fi
 
 # ******** If making a NON-alpha release only **********
-# Check that the current HEAD is also the tip of the official repo master
+# Check that the current HEAD is also the tip of the official repo main
 # branch. If the commits match, it does not matter what the local branch
 # name is, or even if we have a detached head.
 if ! echo "${NEW_VERSION}" | grep -q "alpha"; then
-  remoteMasterSha="$(git ls-remote "${OFFICIAL_GIT_REPO}" master | cut -f1)"
+  remoteMasterSha="$(git ls-remote "${OFFICIAL_GIT_REPO}" main | cut -f1)"
   localSha="$(git rev-parse HEAD)"
   if [ "${remoteMasterSha}" != "${localSha}" ]; then
     echo "Locally, you are on commit ${localSha}."
-    echo "The remote petemoore/samfile repo master branch is on commit ${remoteMasterSha}."
+    echo "The remote petemoore/samfile repo main branch is on commit ${remoteMasterSha}."
     echo "Make sure to git push/pull so that they both point to the same commit."
     exit 67
   fi
@@ -70,8 +70,8 @@ git push "${OFFICIAL_GIT_REPO}" "+refs/tags/v${NEW_VERSION}:refs/tags/v${NEW_VER
 scripts/refresh_readme.sh
 git add README.md
 git commit -m "Refreshed README with samfile output from v${NEW_VERSION}"
-# only ensure master is updated if it is a non-alpha release
+# only ensure main is updated if it is a non-alpha release
 if ! echo "${NEW_VERSION}" | grep -q "alpha"; then
-  git push "${OFFICIAL_GIT_REPO}" "+HEAD:refs/heads/master"
+  git push "${OFFICIAL_GIT_REPO}" "+HEAD:refs/heads/main"
   git fetch "${OFFICIAL_GIT_REPO}"
 fi
