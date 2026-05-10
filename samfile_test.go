@@ -5,6 +5,106 @@ import (
 	"testing"
 )
 
+// TestFileTypeInfoPageFormDecoding pins down the SAM Coupé "PAGEFORM"
+// encoding of the three SAM-BASIC FileTypeInfo length fields, and the
+// four section sizes derived from them.
+//
+// The on-disk encoding stores three cumulative offsets (end of program,
+// end of numeric variables, end of gap). Each is a 19-bit length in
+// PAGEFORM: byte 0 = page count (16384 each), bytes 1-2 = LE address in
+// section C with low 14 bits significant. See ROM disasm RDTHREE
+// (sam-coupe_rom-v3.0_annotated-disassembly.txt:7654-7659) and PAGEFORM
+// (sam-coupe_rom-v3.0_annotated-disassembly.txt:7578-7589).
+//
+// The four section sizes (program, numeric vars, gap, string/array
+// vars) must sum to the file's total Length — that's the structural
+// invariant we check on every fixture below.
+//
+// Falsification fixtures: bytes captured directly from real SAMDOS-
+// written BASIC files on disks downloaded from
+// ftp.nvg.ntnu.no/pub/sam-coupe/disks/utils/. Tech Manual L4370-4382
+// describes the fields as cumulative lengths.
+func TestFileTypeInfoPageFormDecoding(t *testing.T) {
+	cases := []struct {
+		name         string
+		info         [11]byte
+		pages        uint8
+		lengthMod16K uint16
+		wantProgLen  uint32
+		wantNVarsSz  uint32
+		wantGapSz    uint32
+		wantSAVSz    uint32
+	}{
+		{
+			name:         "Auto Font (FontLoader.dsk, no string/array vars)",
+			info:         [11]byte{0x01, 0xc3, 0x8c, 0x01, 0x0d, 0x8e, 0x01, 0x1f, 0x8f, 0x20, 0xff},
+			pages:        1,
+			lengthMod16K: 0x0f1f, // total Length = 20255
+			wantProgLen:  19651,
+			wantNVarsSz:  330,
+			wantGapSz:    274,
+			wantSAVSz:    0,
+		},
+		{
+			name:         "Shredder (FileShredderv1.2.dsk, no string/array vars)",
+			info:         [11]byte{0x00, 0xbf, 0x9b, 0x00, 0x3a, 0x9c, 0x00, 0x1b, 0x9e},
+			pages:        0,
+			lengthMod16K: 0x1e1b, // total Length = 7707
+			wantProgLen:  7103,
+			wantNVarsSz:  123,
+			wantGapSz:    481,
+			wantSAVSz:    0,
+		},
+		{
+			name:         "AUTOCOMMS (CommsLoader.dsk, has string/array vars)",
+			info:         [11]byte{0x00, 0x22, 0x9f, 0x00, 0x30, 0xa0, 0x00, 0x7e, 0xa1},
+			pages:        0,
+			lengthMod16K: 0x229d, // total Length = 8861
+			wantProgLen:  7970,
+			wantNVarsSz:  270,
+			wantGapSz:    334,
+			wantSAVSz:    287,
+		},
+		{
+			name:         "empty: page=0 addr=0x8000 throughout, total=0",
+			info:         [11]byte{0x00, 0x00, 0x80, 0x00, 0x00, 0x80, 0x00, 0x00, 0x80},
+			pages:        0,
+			lengthMod16K: 0,
+			wantProgLen:  0,
+			wantNVarsSz:  0,
+			wantGapSz:    0,
+			wantSAVSz:    0,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fe := &FileEntry{
+				FileTypeInfo: c.info,
+				Pages:        c.pages,
+				LengthMod16K: c.lengthMod16K,
+			}
+			if got := fe.ProgramLength(); got != c.wantProgLen {
+				t.Errorf("ProgramLength = %d; want %d", got, c.wantProgLen)
+			}
+			if got := fe.NumericVariablesSize(); got != c.wantNVarsSz {
+				t.Errorf("NumericVariablesSize = %d; want %d", got, c.wantNVarsSz)
+			}
+			if got := fe.GapSize(); got != c.wantGapSz {
+				t.Errorf("GapSize = %d; want %d", got, c.wantGapSz)
+			}
+			if got := fe.StringArrayVariablesSize(); got != c.wantSAVSz {
+				t.Errorf("StringArrayVariablesSize = %d; want %d", got, c.wantSAVSz)
+			}
+			sum := fe.ProgramLength() + fe.NumericVariablesSize() +
+				fe.GapSize() + fe.StringArrayVariablesSize()
+			if sum != fe.Length() {
+				t.Errorf("section sizes sum to %d; want fe.Length() = %d", sum, fe.Length())
+			}
+		})
+	}
+}
+
+
 // TestAddCodeFile8000HFormPageOffset asserts that AddCodeFile stores the
 // page offset in 8000H-BFFFH form, so disks built with samfile load at
 // the correct address when read by SAMDOS.

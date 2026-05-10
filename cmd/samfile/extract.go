@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/petemoore/samfile/v2"
+	"github.com/petemoore/samfile/v3"
 )
 
 func extract(arguments map[string]interface{}) {
