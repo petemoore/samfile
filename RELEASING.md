@@ -38,7 +38,7 @@ What it does on success:
 
 ## Step 2 — GitHub Actions
 
-The tag push triggers `.github/workflows/release.yml`. Watch it at  
+The tag push triggers `.github/workflows/release.yml`. Watch it at
 [github.com/petemoore/samfile/actions/workflows/release.yml](https://github.com/petemoore/samfile/actions/workflows/release.yml).
 
 The workflow:

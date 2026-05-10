@@ -13,7 +13,7 @@ sed -e "
    //!d
    /^${VALID_FORMAT}/d;r ${TEMP_SAMFILE_HELP}
    /^\`\`\`\$/d
-   " README.md | sed 's/\(github\.com\/petemoore\/samfile\/v\)[0-9][0-9]*\(\/cmd\/samfile@v\)[0-9.]*/\1'"${NEW_VERSION%%.*}\\2${NEW_VERSION}/g" > "${TEMP_SAMFILE_README}"
+" README.md | sed 's/\(github\.com\/petemoore\/samfile\/v\)[0-9][0-9]*\(\/cmd\/samfile@v\)[0-9.]*/\1'"${NEW_VERSION%%.*}\\2${NEW_VERSION}/g" > "${TEMP_SAMFILE_README}"
 cat "${TEMP_SAMFILE_README}" > README.md
 rm "${TEMP_SAMFILE_BINARY}"
 rm "${TEMP_SAMFILE_README}"
