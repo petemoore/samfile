@@ -69,8 +69,21 @@ Download from https://github.com/petemoore/samfile/releases
 
 ## Building from source
 
+To install the latest published version:
+
 ```
 go install github.com/petemoore/samfile/v3/cmd/samfile@v3.0.0
+```
+
+To build and test from a local clone:
+
+```
+git clone https://github.com/petemoore/samfile.git
+cd samfile
+go install ./cmd/samfile     # installs samfile to $(go env GOPATH)/bin
+go test ./...                # run unit and integration tests
+go test -race ./...          # also run with the race detector (matches CI)
+go vet ./...                 # static checks (matches CI)
 ```
 
 ## Releasing
