@@ -72,3 +72,7 @@ Download from https://github.com/petemoore/samfile/releases
 ```
 go install github.com/petemoore/samfile/v3/cmd/samfile@v3.0.0
 ```
+
+## Releasing
+
+See [`RELEASING.md`](RELEASING.md) for the cut-a-release procedure.
