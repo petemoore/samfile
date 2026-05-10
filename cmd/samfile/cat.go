@@ -7,7 +7,7 @@ import (
 	"github.com/petemoore/samfile/v3"
 )
 
-func cat(arguments map[string]interface{}) {
+func cat(arguments map[string]any) {
 	imageName := arguments["-i"].(string)
 	file := arguments["-f"].(string)
 	diskImage, err := samfile.Load(imageName)
@@ -27,11 +27,11 @@ func cat(arguments map[string]interface{}) {
 		fileFound = true
 		f, err := diskImage.File(filename)
 		if err != nil {
-			log.Fatalf("Failed to extract %q from disk image %q: %v", filename, imageName, err)
+			log.Fatalf("failed to extract %q from disk image %q: %v", filename, imageName, err)
 		}
 		_, _ = os.Stdout.Write(f.Body)
 	}
 	if !fileFound {
-		log.Fatalf("File %q not found in disk image %q", file, imageName)
+		log.Fatalf("file %q not found in disk image %q", file, imageName)
 	}
 }

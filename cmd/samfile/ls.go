@@ -6,7 +6,7 @@ import (
 	"github.com/petemoore/samfile/v3"
 )
 
-func ls(arguments map[string]interface{}) {
+func ls(arguments map[string]any) {
 	imageName := arguments["-i"].(string)
 	diskImage, err := samfile.Load(imageName)
 	if err != nil {

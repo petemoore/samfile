@@ -21,9 +21,9 @@ func main() {
 	if revision != "" {
 		versionName += " [ revision: https://github.com/petemoore/samfile/commits/" + revision + " ]"
 	}
-	arguments, err := docopt.Parse(usage(versionName), nil, true, versionName, false, true)
+	arguments, err := docopt.ParseArgs(usage(versionName), nil, versionName)
 	if err != nil {
-		log.Fatalf("Error parsing command line arguments: %v", err)
+		log.Fatalf("error parsing command line arguments: %v", err)
 	}
 	switch {
 	case arguments["cat"]:
@@ -37,6 +37,6 @@ func main() {
 	case arguments["add"]:
 		add(arguments)
 	default:
-		log.Fatal("Could not find a command to run")
+		log.Fatal("could not find a command to run")
 	}
 }

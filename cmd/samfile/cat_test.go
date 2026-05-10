@@ -44,7 +44,7 @@ func TestCatEnolaGayFileFromETrackerDisk(t *testing.T) {
 		"-f",
 		samFile,
 	}
-	arguments, err := docopt.Parse(usage("samfile"), command, true, "samfile", false, true)
+	arguments, err := docopt.ParseArgs(usage("samfile"), command, "samfile")
 	if err != nil {
 		t.Fatal(err)
 	}

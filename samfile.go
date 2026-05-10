@@ -3,6 +3,7 @@
 package samfile
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -168,10 +169,20 @@ func (sector *Sector) String() string {
 	return fmt.Sprintf("Track %v / Sector %v", sector.Track, sector.Sector)
 }
 
+// edskMagic is the prefix every Extended CPC DSK image starts with. The
+// full on-disk magic is "EXTENDED CPC DSK File\r\nDisk-Info\r\n" (34
+// bytes); the 21-byte prefix below is unambiguous and matches both EDSK
+// and any future EDSK-derived variants that share the literal.
+// Reference: https://www.cpcwiki.eu/index.php/Format:DSK_disk_image_file_format
+var edskMagic = []byte("EXTENDED CPC DSK File")
+
 func Load(filename string) (*DiskImage, error) {
 	image, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, fmt.Errorf("ERROR: Can't load disk image %q: %v", filename, err)
+		return nil, fmt.Errorf("error: can't load disk image %q: %v", filename, err)
+	}
+	if len(image) >= len(edskMagic) && bytes.Equal(image[:len(edskMagic)], edskMagic) {
+		return nil, fmt.Errorf("error: EDSK format not supported; convert to MGT with samdisk (https://simonowen.com/samdisk/): samdisk %s OUTPUT.mgt", filename)
 	}
 	d := DiskImage{}
 	copy(d[:], image)
@@ -181,7 +192,7 @@ func Load(filename string) (*DiskImage, error) {
 func (di *DiskImage) Save(filename string) error {
 	err := os.WriteFile(filename, di[:], 0400)
 	if err != nil {
-		return fmt.Errorf("ERROR: Can't write disk image %q: %v", filename, err)
+		return fmt.Errorf("error: can't write disk image %q: %v", filename, err)
 	}
 	return nil
 }
@@ -189,10 +200,10 @@ func (di *DiskImage) Save(filename string) error {
 func (i *DiskImage) SectorData(sector *Sector) (*SectorData, error) {
 	if sector.Sector < 1 || sector.Sector > 10 {
 		debug.PrintStack()
-		return nil, fmt.Errorf("Sector out of range: %v", sector.Sector)
+		return nil, fmt.Errorf("sector out of range: %v", sector.Sector)
 	}
 	if (sector.Track >= 80 && sector.Track < 128) || sector.Track >= 208 {
-		return nil, fmt.Errorf("Track out of range: %v (should be 0-79 or 128-207)", sector.Track)
+		return nil, fmt.Errorf("track out of range: %v (should be 0-79 or 128-207)", sector.Track)
 	}
 	start := sector.Offset()
 	data := SectorData{}
@@ -223,7 +234,7 @@ func (i *DiskImage) DiskJournal() *DiskJournal {
 				},
 			)
 			if err != nil {
-				log.Printf("Error reading directory listing: %v", err)
+				log.Printf("error reading directory listing: %v", err)
 				continue
 			}
 			for offset := 0; offset < 512; offset += 256 {
@@ -313,7 +324,7 @@ func (dj *DiskJournal) Output() {
 	for _, fe := range dj {
 		err := fe.Output()
 		if err != nil {
-			log.Printf("ERROR: %v", err)
+			log.Printf("error: %v", err)
 		}
 	}
 }
@@ -359,7 +370,7 @@ func (fe *FileEntry) Output() error {
 		return nil
 	}
 	if fe.FirstSector.Track < 4 {
-		return fmt.Errorf("First sector has track < 4: %v", fe.FirstSector)
+		return fmt.Errorf("first sector has track < 4: %v", fe.FirstSector)
 	}
 	defer fmt.Println("")
 	fmt.Printf("%q\n", fe.Name)
@@ -490,7 +501,7 @@ func (di *DiskImage) File(filename string) (*File, error) {
 			return file, nil
 		}
 	}
-	return nil, fmt.Errorf("File %v not found", filename)
+	return nil, fmt.Errorf("file %v not found", filename)
 }
 
 func (filename Filename) String() string {
@@ -506,16 +517,16 @@ func (filename Filename) String() string {
 
 func (di *DiskImage) AddCodeFile(name string, data []byte, loadAddress, executionAddress uint32) error {
 	if loadAddress < 1<<14 {
-		return fmt.Errorf("Load address %v of %q is in ROM but must be %v of higher to be loaded into RAM", loadAddress, name, 1<<14)
+		return fmt.Errorf("load address %v of %q is in ROM but must be %v of higher to be loaded into RAM", loadAddress, name, 1<<14)
 	}
 	if int(loadAddress) > 1<<19-len(data) {
-		return fmt.Errorf("Load address %v of %v byte file %q higher than maximum allowed %v", loadAddress, len(data), name, 1<<19-len(data))
+		return fmt.Errorf("load address %v of %v byte file %q higher than maximum allowed %v", loadAddress, len(data), name, 1<<19-len(data))
 	}
 	if executionAddress > 0 && executionAddress < loadAddress {
-		return fmt.Errorf("Execution address %v of %q lower than load address %v", executionAddress, name, loadAddress)
+		return fmt.Errorf("execution address %v of %q lower than load address %v", executionAddress, name, loadAddress)
 	}
 	if int(executionAddress) >= int(loadAddress)+len(data) {
-		return fmt.Errorf("Execution address %v of %q is higher than the memory region it is loaded to (%v to %v)", executionAddress, name, loadAddress, int(loadAddress)+len(data)-1)
+		return fmt.Errorf("execution address %v of %q is higher than the memory region it is loaded to (%v to %v)", executionAddress, name, loadAddress, int(loadAddress)+len(data)-1)
 	}
 	fe := &FileEntry{
 		Type:                   FT_CODE,
@@ -549,12 +560,12 @@ func (di *DiskImage) addFile(name string, fe *FileEntry, data []byte) error {
 	dj := di.DiskJournal()
 	freeFileEntries := dj.FreeFileEntries()
 	if len(freeFileEntries) < 1 {
-		return fmt.Errorf("Cannot add file %q to disk; disk already contains maximum number of files (80).", name)
+		return fmt.Errorf("cannot add file %q to disk; disk already contains maximum number of files (80).", name)
 	}
 	requiredSectorCount := (len(data) + 9 + 509) / 510
 	freeSectors := dj.CombinedSectorMap().FreeSectors()
 	if len(freeSectors) < requiredSectorCount {
-		return fmt.Errorf("Cannot add file %q to disk; not enough space (%v free sectors required but only %v sectors available).", name, requiredSectorCount, len(freeSectors))
+		return fmt.Errorf("cannot add file %q to disk; not enough space (%v free sectors required but only %v sectors available).", name, requiredSectorCount, len(freeSectors))
 	}
 	fe.Name = *(*[10]byte)([]byte(name + "          "))
 	fe.Sectors = uint16(requiredSectorCount)

@@ -2,6 +2,10 @@ package samfile
 
 import (
 	"bytes"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -476,4 +480,156 @@ func TestAddFileMultiFileNoCorruption(t *testing.T) {
 			t.Fatalf("file B body differs from input")
 		}
 	})
+}
+
+// TestLoadRejectsEDSK pins the user-visible error when samfile is handed
+// an Extended CPC DSK image instead of a raw MGT image.
+//
+// EDSK files start with the 34-byte ASCII magic
+// "EXTENDED CPC DSK File\r\nDisk-Info\r\n" at offset 0 (per
+// https://www.cpcwiki.eu/index.php/Format:DSK_disk_image_file_format).
+// Without rejection, samfile silently treats the first 819200 bytes as
+// raw MGT — the directory decode happens to land on plausible bytes
+// (file names look right) but file-body sector reads at MGT offsets
+// return garbage, because EDSK interleaves track-info blocks with
+// sector data.
+//
+// The fix detects the magic at the entry to Load() and returns an
+// error pointing the user at samdisk, which round-trips EDSK<->MGT.
+func TestLoadRejectsEDSK(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fake.dsk")
+
+	// 256-byte fake EDSK: magic at offset 0, zeros elsewhere. The
+	// magic prefix alone is sufficient for detection; the rest of the
+	// disk-info block is not inspected.
+	fakeEDSK := make([]byte, 256)
+	copy(fakeEDSK, []byte("EXTENDED CPC DSK File\r\nDisk-Info\r\n"))
+	if err := os.WriteFile(path, fakeEDSK, 0600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() returned nil error on EDSK input; want rejection")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "EDSK") {
+		t.Errorf("error message %q does not mention EDSK", msg)
+	}
+	if !strings.Contains(msg, "samdisk") {
+		t.Errorf("error message %q does not mention the samdisk conversion command", msg)
+	}
+	if !strings.Contains(msg, "simonowen.com") {
+		t.Errorf("error message %q does not include the samdisk URL", msg)
+	}
+}
+
+// TestSAMBasicOutputRejectsEmptyInput pins the no-panic contract for
+// (*SAMBasic).Output(): empty input must produce a clear error, not an
+// index-out-of-range panic at sambasic.go:23.
+//
+// Reproduces the user-visible bug where
+//
+//	samfile cat -i edsk.dsk -f some-file | samfile basic-to-text
+//
+// piped 0 bytes (because the EDSK reader returned garbage that didn't
+// match any file) and basic-to-text panicked with
+// "index out of range [0] with length 0".
+//
+// Empty input is a degenerate but unavoidable case at a CLI pipe
+// boundary: any upstream that writes nothing must not crash this stage.
+func TestSAMBasicOutputRejectsEmptyInput(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Output() panicked on empty input: %v", r)
+		}
+	}()
+
+	sb := NewSAMBasic([]byte{})
+	err := sb.Output()
+	if err == nil {
+		t.Fatal("Output() returned nil error on empty input; want a clear rejection")
+	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("error %q does not mention empty input", err.Error())
+	}
+}
+
+// TestSAMBasicOutputBoundsChecks pins the no-panic contract for
+// (*SAMBasic).Output() on malformed-but-non-empty input. The empty-input
+// guard added in commit 00877fa handles len==0; this test covers the
+// decode loop's per-byte accesses, which were also unchecked.
+//
+// Each case is a deliberately-truncated SAM BASIC blob that, before the
+// bounds-check fix, would panic with "index out of range" inside
+// sambasic.go. After the fix, all return a clear error mentioning
+// truncation or invalid input. None should panic; defer/recover catches
+// any escapee.
+func TestSAMBasicOutputBoundsChecks(t *testing.T) {
+	cases := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "single non-sentinel byte: panics on Data[1] for line-no MSB",
+			data: []byte{0x00},
+		},
+		{
+			name: "two-byte input: panics on Data[2] for line-len LSB",
+			data: []byte{0x00, 0x01},
+		},
+		{
+			name: "three-byte input: panics on Data[3] for line-len MSB",
+			data: []byte{0x00, 0x01, 0x05},
+		},
+		{
+			name: "header complete but no body and no sentinel after",
+			data: []byte{0x00, 0x01, 0x00, 0x00},
+		},
+		{
+			name: "lineLen says 10 but body is only 3 bytes",
+			data: []byte{0x00, 0x01, 0x0a, 0x00, 0x41, 0x42, 0x43},
+		},
+		{
+			name: "0xff keyword escape with no following byte",
+			data: []byte{0x00, 0x01, 0x01, 0x00, 0xff},
+		},
+		{
+			name: "no 0xff sentinel anywhere, body fits but program never terminates",
+			data: []byte{0x00, 0x01, 0x02, 0x00, 0x41, 0x0d},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("Output() panicked on truncated input %v: %v", c.data, r)
+				}
+			}()
+			// Capture stdout so partial output during decode doesn't pollute
+			// the test runner. We discard it; we only care about the no-panic
+			// + error-returned contract.
+			oldStdout := os.Stdout
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("os.Pipe: %v", err)
+			}
+			os.Stdout = w
+			defer func() { os.Stdout = oldStdout }()
+			drained := make(chan struct{})
+			go func() {
+				_, _ = io.Copy(io.Discard, r)
+				close(drained)
+			}()
+
+			outErr := NewSAMBasic(c.data).Output()
+			_ = w.Close()
+			<-drained
+
+			if outErr == nil {
+				t.Fatalf("Output() returned nil error on truncated input %v; want non-nil", c.data)
+			}
+		})
+	}
 }
