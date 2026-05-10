@@ -376,8 +376,9 @@ func (fe *FileEntry) Output() error {
 		fmt.Printf("  Screen Mode:                       %v\n", fe.FileTypeInfo[0])
 	case FT_SAM_BASIC:
 		fmt.Printf("  Program length:                    %v\n", fe.ProgramLength())
-		fmt.Printf("  Numeric variables offset:          %v\n", fe.NumericVariableOffset())
-		fmt.Printf("  String/array variables offset:     %v\n", fe.StringArrayVariableOffset())
+		fmt.Printf("  Numeric variables size:            %v\n", fe.NumericVariablesSize())
+		fmt.Printf("  Gap size:                          %v\n", fe.GapSize())
+		fmt.Printf("  String/array variables size:       %v\n", fe.StringArrayVariablesSize())
 	}
 	fmt.Printf("  Start:                             %v\n", fe.StartAddress())
 	fmt.Printf("  Length:                            %v\n", fe.Length())
@@ -404,16 +405,40 @@ func pageFormLength(b0, b1, b2 byte) uint32 {
 	return uint32(b0)*16384 + uint32(uint16(b1)|uint16(b2)<<8)&0x3fff
 }
 
+// SAM BASIC file layout (program area, in order):
+//   [program text] [numeric variables] [gap] [string/array variables]
+// The three FileTypeInfo length fields encode the cumulative offsets of the
+// section boundaries; the four section sizes below are derived from them
+// plus the file's total Length, and are easier for callers to reason
+// about than the raw cumulative offsets. Per Tech Manual L4370-4382 and
+// ROM disasm L16005-16012 ("CDE=LEN OF PROG ALONE" / "CDE=LEN OF
+// PROG+NVARS+GAP").
+
+// ProgramLength is the size in bytes of the SAM BASIC program text,
+// excluding any variables.
 func (fe *FileEntry) ProgramLength() uint32 {
 	return pageFormLength(fe.FileTypeInfo[0], fe.FileTypeInfo[1], fe.FileTypeInfo[2])
 }
 
-func (fe *FileEntry) NumericVariableOffset() uint32 {
-	return pageFormLength(fe.FileTypeInfo[3], fe.FileTypeInfo[4], fe.FileTypeInfo[5])
+// NumericVariablesSize is the size in bytes of the numeric variables
+// section that immediately follows the program text.
+func (fe *FileEntry) NumericVariablesSize() uint32 {
+	return pageFormLength(fe.FileTypeInfo[3], fe.FileTypeInfo[4], fe.FileTypeInfo[5]) -
+		pageFormLength(fe.FileTypeInfo[0], fe.FileTypeInfo[1], fe.FileTypeInfo[2])
 }
 
-func (fe *FileEntry) StringArrayVariableOffset() uint32 {
-	return pageFormLength(fe.FileTypeInfo[6], fe.FileTypeInfo[7], fe.FileTypeInfo[8])
+// GapSize is the size in bytes of the gap that SAM BASIC leaves between
+// the numeric variables and the string/array variables.
+func (fe *FileEntry) GapSize() uint32 {
+	return pageFormLength(fe.FileTypeInfo[6], fe.FileTypeInfo[7], fe.FileTypeInfo[8]) -
+		pageFormLength(fe.FileTypeInfo[3], fe.FileTypeInfo[4], fe.FileTypeInfo[5])
+}
+
+// StringArrayVariablesSize is the size in bytes of the string and array
+// variables section, which occupies the remainder of the file after the
+// gap.
+func (fe *FileEntry) StringArrayVariablesSize() uint32 {
+	return fe.Length() - pageFormLength(fe.FileTypeInfo[6], fe.FileTypeInfo[7], fe.FileTypeInfo[8])
 }
 
 func (fe *FileEntry) ExecutionAddress() uint32 {
