@@ -1,5 +1,13 @@
 package samfile
 
+// keywords is the SAM BASIC v3 keyword token table, indexed by
+// (token_byte − 0x3B). Tokens 0x85..0xF6 are direct single-byte
+// keywords; the two-byte form 0xFF, <idx> extends the table for
+// keywords whose first byte would clash with printable ASCII. Used
+// by SAMBasic.Output to detokenise saved BASIC programs.
+//
+// "<<Reserved>>" entries are slots the ROM never emits — present
+// here only so the index arithmetic lines up with the byte values.
 var (
 	keywords = []string{
 		"PI",
