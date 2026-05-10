@@ -5,6 +5,79 @@ import (
 	"testing"
 )
 
+// TestAddCodeFile8000HFormPageOffset asserts that AddCodeFile stores the
+// page offset in 8000H-BFFFH form, so disks built with samfile load at
+// the correct address when read by SAMDOS.
+//
+// Tech Manual v3.0 L4326-4329 (file-header section) and L4388-4392
+// (directory-entry section) both specify the encoding:
+//
+//   - Byte 8 (file header) / 236 (directory entry): "starting page
+//     number ... AND this with 1FH to get the page number in the
+//     range 0 to 31".
+//   - Bytes 3-4 (file header) / 237-238 (directory entry): "PAGE
+//     OFFSET (8000-BFFFH)".
+//   - Decode: start = page * 16384 + raw_offset - 0x4000.
+//
+// Empirically confirmed against three real SAMDOS-written disks
+// (CommsLoader.dsk, FileShredderv1.2.dsk, FontLoader.dsk): 38 of 38
+// directory entries have bit 15 set in bytes 0xed/0xee. Without the
+// fix, samfile-written disks load ~16K below the intended address
+// when read by SAMDOS — even though samfile's own reader (which masks
+// `& 0x3fff`) reads them back correctly.
+//
+// This test runs samfile-written stored bytes through the Tech Manual
+// decode formula directly, bypassing samfile's reader-side masking.
+func TestAddCodeFile8000HFormPageOffset(t *testing.T) {
+	cases := []struct {
+		name        string
+		loadAddress uint32
+	}{
+		{"first RAM byte (0x4000)", 0x4000},
+		{"section C boundary (0xC000)", 0xC000},
+		{"FontLoader 'Font Code' equivalent (82000)", 82000},
+		{"end of last RAM page (0x7FFFC)", 0x7FFFC},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			di := &DiskImage{}
+			if err := di.AddCodeFile("F", []byte("test"), c.loadAddress, 0); err != nil {
+				t.Fatalf("AddCodeFile: %v", err)
+			}
+			var fe *FileEntry
+			for _, e := range di.DiskJournal() {
+				if e.Used() && e.Name.String() == "F" {
+					fe = e
+					break
+				}
+			}
+			if fe == nil {
+				t.Fatal("F entry not found in disk journal")
+			}
+			rawOffset := fe.StartAddressPageOffset
+			if rawOffset&0x8000 == 0 {
+				t.Errorf("raw page offset 0x%04x has bit 15 clear; "+
+					"Tech Manual L4390 specifies range 8000-BFFFH",
+					rawOffset)
+			}
+			if rawOffset >= 0xC000 {
+				t.Errorf("raw page offset 0x%04x outside 8000-BFFFH range",
+					rawOffset)
+			}
+			techManualStart := uint32(fe.StartAddressPage&0x1f)*0x4000 +
+				uint32(rawOffset) - 0x4000
+			if techManualStart != c.loadAddress {
+				t.Errorf("Tech Manual decode of stored bytes "+
+					"(page=0x%02x, offset=0x%04x) = 0x%05x; "+
+					"load address was 0x%05x",
+					fe.StartAddressPage, rawOffset,
+					techManualStart, c.loadAddress)
+			}
+		})
+	}
+}
+
+
 // TestSAMMaskExhaustive iterates over every valid data sector — the 1560
 // in the SAM domain (T4..T79 S1..S10 on side 0, T128..T207 S1..S10 on
 // side 1) — and asserts SAMMask returns (bitOffset/8, 1<<(bitOffset%8)).
