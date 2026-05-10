@@ -483,7 +483,7 @@ func (di *DiskImage) AddCodeFile(name string, data []byte, loadAddress, executio
 	fe := &FileEntry{
 		Type:                   FT_CODE,
 		StartAddressPage:       uint8(loadAddress>>14) - 1,
-		StartAddressPageOffset: uint16(loadAddress & 0x3fff),
+		StartAddressPageOffset: uint16((loadAddress & 0x3fff) | 0x8000),
 		ExecutionAddressDiv16K: 0xff,
 		ExecutionAddressMod16K: 0xffff,
 	}
