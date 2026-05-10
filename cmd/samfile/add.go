@@ -6,17 +6,17 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/petemoore/samfile/v2"
+	"github.com/petemoore/samfile/v3"
 )
 
-func add(arguments map[string]interface{}) {
+func add(arguments map[string]any) {
 	file := arguments["-f"].(string)
 	fileInfo, statError := os.Stat(file)
 	if statError != nil {
-		log.Fatalf("File %v not found", file)
+		log.Fatalf("file %v not found", file)
 	}
 	if fileInfo.IsDir() {
-		log.Fatalf("Target directory must be an existing file: %v exists, but is a directory", file)
+		log.Fatalf("target directory must be an existing file: %v exists, but is a directory", file)
 	}
 	loadAddressStr := arguments["-l"].(string)
 	loadAddress, err := strconv.Atoi(loadAddressStr)

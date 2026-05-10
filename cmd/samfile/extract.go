@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/petemoore/samfile/v2"
+	"github.com/petemoore/samfile/v3"
 )
 
-func extract(arguments map[string]interface{}) {
+func extract(arguments map[string]any) {
 	imageName := arguments["-i"].(string)
 	target := "."
 	if arguments["-t"] != nil {
@@ -17,10 +17,10 @@ func extract(arguments map[string]interface{}) {
 	}
 	fileInfo, statError := os.Stat(target)
 	if statError != nil {
-		log.Fatalf("Target directory must be an existing directory: %v not found", target)
+		log.Fatalf("target directory must be an existing directory: %v not found", target)
 	}
 	if !fileInfo.IsDir() {
-		log.Fatalf("Target directory must be an existing directory: %v exists, but is not a directory", target)
+		log.Fatalf("target directory must be an existing directory: %v exists, but is not a directory", target)
 	}
 	diskImage, err := samfile.Load(imageName)
 	if err != nil {
@@ -36,17 +36,17 @@ func extract(arguments map[string]interface{}) {
 		filename := diskfile.Name.String()
 		f, err := diskImage.File(filename)
 		if err != nil {
-			log.Printf("WARNING: Could not extract %q: %v", filename, err)
+			log.Printf("warning: could not extract %q: %v", filename, err)
 			continue
 		}
-		localFile := filepath.Join(target, strings.Replace(filename, string([]rune{os.PathSeparator}), "#", -1))
-		log.Printf("Saving file %q from disk image %q to file %q", filename, imageName, localFile)
+		localFile := filepath.Join(target, strings.ReplaceAll(filename, string([]rune{os.PathSeparator}), "#"))
+		log.Printf("saving file %q from disk image %q to file %q", filename, imageName, localFile)
 		err = os.WriteFile(localFile, f.Body, 0666)
 		if err != nil {
-			log.Fatalf("Failed to write file %q: %v", localFile, err)
+			log.Fatalf("failed to write file %q: %v", localFile, err)
 		}
 	}
 	if !fileFound {
-		log.Printf("WARNING: no files found in disk image %q so nothing extracted.", imageName)
+		log.Printf("warning: no files found in disk image %q so nothing extracted.", imageName)
 	}
 }
