@@ -177,6 +177,130 @@ func TestAddCodeFile8000HFormPageOffset(t *testing.T) {
 	}
 }
 
+// TestAddCodeFileExecutionAddressDiv16KConvention pins the byte-level
+// encoding of the execution-address triplet at directory-entry bytes
+// 0xf2-0xf4.
+//
+// Tech Manual v3.0 L4396 lists "EXECUTION ADDRESS" at directory bytes
+// 242-244 (UIFA 37-39) for CODE files, but is silent on the exact
+// byte-level encoding. The encoding therefore has to be derived
+// empirically from real SAMDOS-written disks.
+//
+// Three independent disks all carry COMET.COD with start address
+// 36921 (= 0x9039) and stored execution-address bytes
+// 0xf2 = 0x02, 0xf3-0xf4 = 0x39 0x90 (= 0x9039 LE):
+//
+//   - CometAssembler1.8EdwinBlink.dsk
+//   - comet18(1)/Comet18.dsk
+//   - GoodSamC2/comet.dsk
+//
+// Decoding byte 0xf2 directly as `addr / 16384` and bytes 0xf3-0xf4
+// (LE) as `(addr mod 16384) | 0x8000` reproduces 0x9039 exactly.
+// Decoding byte 0xf2 with a -1 offset (the convention StartPage byte
+// 0xec uses, per L4388) gives 53305 — past the end of the 12231-byte
+// COMET body. So the convention for execution-address bytes is:
+//
+//   - byte 0xf2 = (executionAddress / 16384), NO -1 offset
+//   - bytes 0xf3-0xf4 = (executionAddress mod 16384) | 0x8000
+//     (8000H-form, same as StartAddressPageOffset)
+//
+// Without the fix, AddCodeFile stored byte 0xf2 with `(addr>>14) - 1`,
+// inherited by copy-paste from the StartPage writer. SAMDOS auto-RUN
+// of a samfile-written file would then jump 16K below the intended
+// entry point.
+func TestAddCodeFileExecutionAddressDiv16KConvention(t *testing.T) {
+	cases := []struct {
+		name             string
+		loadAddress      uint32
+		executionAddress uint32
+		wantDiv16K       uint8
+		wantMod16K       uint16
+	}{
+		{"first RAM byte (0x4000)", 0x4000, 0x4000, 1, 0x8000},
+		{"typical user code (0x6000)", 0x6000, 0x6000, 1, 0xA000},
+		{"COMET.COD (0x9039)", 0x9039, 0x9039, 2, 0x9039},
+		{"section C boundary (0xC000)", 0xC000, 0xC000, 3, 0x8000},
+		{"end of last RAM page (0x7FFFC)", 0x7FFFC, 0x7FFFC, 31, 0xBFFC},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			di := &DiskImage{}
+			if err := di.AddCodeFile("F", []byte("test"), c.loadAddress, c.executionAddress); err != nil {
+				t.Fatalf("AddCodeFile: %v", err)
+			}
+			var fe *FileEntry
+			for _, e := range di.DiskJournal() {
+				if e.Used() && e.Name.String() == "F" {
+					fe = e
+					break
+				}
+			}
+			if fe == nil {
+				t.Fatal("F entry not found in disk journal")
+			}
+			if fe.ExecutionAddressDiv16K != c.wantDiv16K {
+				t.Errorf("byte 0xf2 (Div16K) = 0x%02x; want 0x%02x. "+
+					"Real SAMDOS-written disks (3 COMET.COD samples) store "+
+					"`addr/16384` directly; the StartPage-style `-1` offset "+
+					"does NOT apply to the execution-address byte.",
+					fe.ExecutionAddressDiv16K, c.wantDiv16K)
+			}
+			if fe.ExecutionAddressMod16K != c.wantMod16K {
+				t.Errorf("bytes 0xf3-0xf4 (Mod16K LE) = 0x%04x; want 0x%04x "+
+					"(8000H-form, like StartAddressPageOffset)",
+					fe.ExecutionAddressMod16K, c.wantMod16K)
+			}
+		})
+	}
+}
+
+// TestAddCodeFileExecutionAddressRoundTrip is the user-facing
+// round-trip assertion for the execution-address writer/reader pair:
+// what AddCodeFile stores, ExecutionAddress() must read back unchanged.
+//
+// Without the fix to AddCodeFile, the writer applies `-1` to the page
+// byte (inherited from the StartPage writer), but the reader (corrected
+// in commit e64f5d5 "Execution Address Page off by one") does not add
+// `+1` back. Round-trip is then off by 16K.
+func TestAddCodeFileExecutionAddressRoundTrip(t *testing.T) {
+	cases := []struct {
+		name             string
+		loadAddress      uint32
+		executionAddress uint32
+	}{
+		{"exec at load (0x4000)", 0x4000, 0x4000},
+		{"exec at load (0x6000)", 0x6000, 0x6000},
+		{"exec at load (COMET 0x9039)", 0x9039, 0x9039},
+		{"exec at load (0xC000)", 0xC000, 0xC000},
+		{"exec at load (end of RAM 0x7FFFC)", 0x7FFFC, 0x7FFFC},
+		{"exec mid-body (load 0x6000, exec 0x6002)", 0x6000, 0x6002},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			di := &DiskImage{}
+			if err := di.AddCodeFile("F", []byte("test"), c.loadAddress, c.executionAddress); err != nil {
+				t.Fatalf("AddCodeFile: %v", err)
+			}
+			var fe *FileEntry
+			for _, e := range di.DiskJournal() {
+				if e.Used() && e.Name.String() == "F" {
+					fe = e
+					break
+				}
+			}
+			if fe == nil {
+				t.Fatal("F entry not found in disk journal")
+			}
+			got := fe.ExecutionAddress()
+			if got != c.executionAddress {
+				t.Errorf("ExecutionAddress() = 0x%05x; want 0x%05x "+
+					"(writer/reader round-trip mismatch)",
+					got, c.executionAddress)
+			}
+		})
+	}
+}
+
 
 // TestSAMMaskExhaustive iterates over every valid data sector — the 1560
 // in the SAM domain (T4..T79 S1..S10 on side 0, T128..T207 S1..S10 on
