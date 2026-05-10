@@ -1,10 +1,10 @@
 #!/bin/bash -eu
 cd "$(dirname "${0}")"/..
-VALID_FORMAT='samfile .* revision.*'
+VALID_FORMAT='samfile [0-9][.0-9]*'
 TEMP_SAMFILE_HELP="$(mktemp -t samfile-help-text.XXXXXXXXXX)"
 TEMP_SAMFILE_README="$(mktemp -t samfile-readme.XXXXXXXXXX)"
 TEMP_SAMFILE_BINARY="$(mktemp -t samfile.XXXXXXXXXX)"
-go build -ldflags "-X main.revision=$(git rev-parse HEAD) -X main.version=$(git tag -l 'v*.*.*' --points-at HEAD | sed -n '1s/^v//p')" -o "${TEMP_SAMFILE_BINARY}" github.com/petemoore/samfile/cmd/samfile
+go build -ldflags "-X main.revision=$(git rev-parse HEAD) -X main.version=$(git tag -l 'v*.*.*' --points-at HEAD | sed -n '1s/^v//p')" -o "${TEMP_SAMFILE_BINARY}" ./cmd/samfile
 "${TEMP_SAMFILE_BINARY}" --help > "${TEMP_SAMFILE_HELP}"
 echo '```' >> "${TEMP_SAMFILE_HELP}"
 sed -e "

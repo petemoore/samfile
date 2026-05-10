@@ -1,8 +1,7 @@
 # samfile
 
-[![Build Status](https://img.shields.io/travis/petemoore/samfile.svg?style=flat-square&label=build+status)](https://travis-ci.org/petemoore/samfile)
-[![GoDoc](https://godoc.org/github.com/petemoore/samfile?status.svg)](https://godoc.org/github.com/petemoore/samfile)
-[![Coverage Status](https://coveralls.io/repos/petemoore/samfile/badge.svg?branch=master&service=github)](https://coveralls.io/github/petemoore/samfile?branch=master)
+[![CI](https://github.com/petemoore/samfile/actions/workflows/ci.yml/badge.svg)](https://github.com/petemoore/samfile/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/petemoore/samfile/v3.svg)](https://pkg.go.dev/github.com/petemoore/samfile/v3)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](https://opensource.org/licenses/MIT)
 
 `samfile` is a tool for manipulating _individual files_ inside SAM Coupé floppy
@@ -14,7 +13,7 @@ utility.
 
 ```
 $ samfile --help
-samfile 2.1.1
+samfile 3.0.0 [ revision: https://github.com/petemoore/samfile/commits/0a7a919d5a60b7881752c4f6c3cd5e9fb252e662 ]
 
 Manipulate files in SAM Coupé floppy disk images.
 
@@ -71,5 +70,5 @@ Download from https://github.com/petemoore/samfile/releases
 ## Building from source
 
 ```
-go install github.com/petemoore/samfile/v2/cmd/samfile@v2.1.1
+go install github.com/petemoore/samfile/v3/cmd/samfile@v3.0.0
 ```
