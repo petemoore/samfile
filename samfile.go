@@ -561,7 +561,7 @@ func (di *DiskImage) WriteFileEntry(dj *DiskJournal, index int) {
 
 func (sector *Sector) SAMMask() (offset uint8, mask uint8) {
 	bitOffset := (int(sector.Track)&0x7f)*10 + int(sector.Sector) - 1 + ((int(sector.Track)&0x80)>>7)*800 - 40
-	return uint8(bitOffset >> 3), 1 << bitOffset & 0x07
+	return uint8(bitOffset >> 3), 1 << (bitOffset & 0x07)
 }
 
 func (sector *Sector) Offset() int {
