@@ -1,3 +1,10 @@
+// Command samfile manipulates files inside a SAM Coupé MGT floppy
+// disk image: listing the directory (ls), extracting one or all
+// files (cat / extract), adding a new code file (add), and
+// detokenising a saved SAM BASIC program to plain text
+// (basic-to-text). Run `samfile --help` for invocation details. For
+// programmatic access to MGT images, import the parent package
+// github.com/petemoore/samfile/v3.
 package main
 
 import (
