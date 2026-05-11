@@ -1770,6 +1770,12 @@ func TestExhaustiveRealDiskRoundtrip(t *testing.T) {
 	// for .dsk and .mgt files that are exactly 819200 bytes (the
 	// canonical MGT image size). This catches raw MGT files regardless
 	// of extension and skips archives, EDSK headers, etc.
+	//
+	// Additionally, a testdata/mgt/ directory under this package holds
+	// a curated set of at least 40 .mgt files downloaded from public
+	// SAM Coupé archives (World of Sam, etc.) for CI-reproducible
+	// testing. The filesystem scan is additive — it finds any extras
+	// on the developer's machine.
 	var diskPaths []string
 
 	home := os.Getenv("HOME")
@@ -1777,6 +1783,12 @@ func TestExhaustiveRealDiskRoundtrip(t *testing.T) {
 		filepath.Join(home, "Downloads"),
 		filepath.Join(home, "git"),
 	}
+
+	// Also include the vendored test corpus
+	if wd, err := os.Getwd(); err == nil {
+		searchDirs = append(searchDirs, filepath.Join(wd, "testdata", "mgt"))
+	}
+
 	seen := map[string]bool{}
 	for _, dir := range searchDirs {
 		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
