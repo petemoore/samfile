@@ -863,6 +863,7 @@ func (di *DiskImage) SetStartAddressPageUnusedBits(name string, bits uint8) erro
 		}
 		value := (fe.StartAddressPage & 0x1F) | (bits << 5)
 		fe.StartAddressPage = value
+		fe.MGTFutureAndPast[9] = value
 		di.WriteFileEntry(dj, slot)
 		di[fe.FirstSector.Offset()+8] = value
 		return nil
@@ -912,13 +913,24 @@ func (di *DiskImage) AddBasicFile(name string, file *sambasic.File) error {
 // the file body, by copying the directory entry's mirrored
 // metadata fields (Type, length, start-page/offset). Used by
 // addFile to construct the on-disk header for a new file.
+//
+// Body header bytes 5-6 carry the CODE execution address gate;
+// for non-CODE files they are always 0xFF — BASIC auto-RUN is
+// signalled via the directory entry's 0xF2-0xF4 bytes only
+// (see sam-file-header.md §3 and test-mgt-byte-layout.md).
 func (fe *FileEntry) CreateHeader() *FileHeader {
+	execDiv := uint8(0xFF)
+	execModLo := uint8(0xFF)
+	if fe.Type == FT_CODE {
+		execDiv = fe.ExecutionAddressDiv16K
+		execModLo = byte(fe.ExecutionAddressMod16K & 0xff)
+	}
 	return &FileHeader{
 		Type:                     fe.Type,
 		LengthMod16K:             fe.LengthMod16K,
 		PageOffset:               fe.StartAddressPageOffset,
-		ExecutionAddressDiv16K:   fe.ExecutionAddressDiv16K,
-		ExecutionAddressMod16KLo: byte(fe.ExecutionAddressMod16K & 0xff),
+		ExecutionAddressDiv16K:   execDiv,
+		ExecutionAddressMod16KLo: execModLo,
 		Pages:                    fe.Pages,
 		StartPage:                fe.StartAddressPage,
 	}

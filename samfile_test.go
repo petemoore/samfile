@@ -1025,6 +1025,62 @@ func TestSetStartAddressPageUnusedBits(t *testing.T) {
 	}
 }
 
+// TestSetStartAddressPageUnusedBitsThreeWayConsistency is a property
+// test: after SetStartAddressPageUnusedBits, the StartPage byte must
+// agree across all three on-disk locations — dir 0xEC, body byte 8,
+// and the MGTFutureAndPast mirror at dir 0xDB (SAMDOS source
+// f.s:462-471, c.s:1376-1379; see BODY-MIRROR-AT-DIR-D3-DB in
+// disk-validity-rules.md).
+func TestSetStartAddressPageUnusedBitsThreeWayConsistency(t *testing.T) {
+	di := NewDiskImage()
+	if err := di.AddCodeFile("F", make([]byte, 500), 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	if err := di.SetStartAddressPageUnusedBits("F", 5); err != nil {
+		t.Fatalf("SetStartAddressPageUnusedBits: %v", err)
+	}
+	fe := usedFileEntry(t, di, "F")
+	first := firstSectorBytes(t, di, "F")
+
+	dirEC := fe.StartAddressPage     // dir byte 0xEC
+	dirDB := fe.MGTFutureAndPast[9]  // dir byte 0xDB (mirror of body byte 8)
+	bodyB8 := first[8]               // body header byte 8
+
+	if dirEC != bodyB8 || dirEC != dirDB {
+		t.Errorf("three-way mismatch: dir[0xEC]=0x%02x, body[8]=0x%02x, MGTFutureAndPast[9]=0x%02x — all must be equal",
+			dirEC, bodyB8, dirDB)
+	}
+}
+
+// TestAddBasicFileBodyHeaderExecGate verifies that BASIC files have
+// body header bytes 5-6 set to 0xFF. The auto-exec gate in the body
+// header is a CODE-file concept; BASIC auto-RUN is signalled via the
+// directory entry's 0xF2-0xF4 bytes only (see test-mgt-byte-layout.md
+// and sam-file-header.md §3).
+func TestAddBasicFileBodyHeaderExecGate(t *testing.T) {
+	di := NewDiskImage()
+	bf := &sambasic.File{
+		Lines:     []sambasic.Line{{Number: 10, Tokens: []sambasic.Token{sambasic.PRINT, sambasic.String("hi")}}},
+		StartLine: 10,
+	}
+	if err := di.AddBasicFile("auto", bf); err != nil {
+		t.Fatalf("AddBasicFile: %v", err)
+	}
+	fe := usedFileEntry(t, di, "auto")
+	first := firstSectorBytes(t, di, "auto")
+
+	if first[5] != 0xFF || first[6] != 0xFF {
+		t.Errorf("BASIC body header bytes 5-6 = 0x%02x 0x%02x; want 0xFF 0xFF (no CODE auto-exec)", first[5], first[6])
+	}
+	// Dir entry 0xF2 should still carry the BASIC auto-RUN marker.
+	if fe.ExecutionAddressDiv16K != 0x00 {
+		t.Errorf("dir ExecutionAddressDiv16K = 0x%02x; want 0x00 (auto-RUN)", fe.ExecutionAddressDiv16K)
+	}
+	if fe.SAMBASICStartLine != 10 {
+		t.Errorf("dir SAMBASICStartLine = %d; want 10", fe.SAMBASICStartLine)
+	}
+}
+
 // TestSetStartAddressPageUnusedBitsOutOfRange confirms that values
 // above 7 are rejected — the API is for 3 bits only.
 func TestSetStartAddressPageUnusedBitsOutOfRange(t *testing.T) {
