@@ -50,6 +50,8 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+
+	"github.com/petemoore/samfile/v3/sambasic"
 )
 
 type (
@@ -808,6 +810,58 @@ func (di *DiskImage) AddCodeFile(name string, data []byte, loadAddress, executio
 		fe,
 		data,
 	)
+}
+
+func NewDiskImage() *DiskImage {
+	return &DiskImage{}
+}
+
+func pageForm3Byte(value uint32) [3]byte {
+	page := byte(value / 16384)
+	offset := uint16(value%16384) | 0x8000
+	return [3]byte{page, byte(offset & 0xFF), byte(offset >> 8)}
+}
+
+func (di *DiskImage) AddBasicFile(name string, file *sambasic.File) error {
+	body := file.Bytes()
+
+	fe := &FileEntry{
+		Type:                   FT_SAM_BASIC,
+		StartAddressPage:       0,
+		StartAddressPageOffset: 0x9CD5,
+		MGTFlags:               0x20,
+	}
+
+	if file.StartLine == 0xFFFF {
+		fe.ExecutionAddressDiv16K = 0xFF
+		fe.ExecutionAddressMod16K = 0xFFFF
+		fe.SAMBASICStartLine = 0xFFFF
+	} else {
+		fe.ExecutionAddressDiv16K = 0x00
+		fe.ExecutionAddressMod16K = file.StartLine
+		fe.SAMBASICStartLine = file.StartLine
+	}
+
+	nvars := pageForm3Byte(file.NVARSOffset())
+	numend := pageForm3Byte(file.NUMENDOffset())
+	savars := pageForm3Byte(file.SAVARSOffset())
+	copy(fe.FileTypeInfo[0:3], nvars[:])
+	copy(fe.FileTypeInfo[3:6], numend[:])
+	copy(fe.FileTypeInfo[6:9], savars[:])
+
+	pages := uint8(len(body) >> 14)
+	lengthMod16K := uint16(len(body) & 0x3FFF)
+	fe.MGTFutureAndPast[1] = byte(FT_SAM_BASIC)
+	fe.MGTFutureAndPast[2] = byte(lengthMod16K)
+	fe.MGTFutureAndPast[3] = byte(lengthMod16K >> 8)
+	fe.MGTFutureAndPast[4] = 0xD5 // PageOffset lo
+	fe.MGTFutureAndPast[5] = 0x9C // PageOffset hi
+	fe.MGTFutureAndPast[6] = 0xFF
+	fe.MGTFutureAndPast[7] = 0xFF
+	fe.MGTFutureAndPast[8] = pages
+	fe.MGTFutureAndPast[9] = 0x00
+
+	return di.addFile(name, fe, body)
 }
 
 // CreateHeader synthesises the 9-byte FileHeader that should prefix
