@@ -47,8 +47,8 @@ func String(s string) *Str {
 	return &v
 }
 
-type Literal byte
+type literal byte
 
-func (l Literal) Bytes() []byte {
+func (l literal) Bytes() []byte {
 	return []byte{byte(l)}
 }
