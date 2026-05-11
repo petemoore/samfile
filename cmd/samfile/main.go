@@ -43,6 +43,10 @@ func main() {
 		basicToText(arguments)
 	case arguments["add"]:
 		add(arguments)
+	case arguments["verify"]:
+		if err := runVerify(arguments["-i"].(string)); err != nil {
+			log.Fatal(err)
+		}
 	default:
 		log.Fatal("could not find a command to run")
 	}

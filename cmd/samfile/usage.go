@@ -11,6 +11,7 @@ Manipulate files in SAM Coupé floppy disk images.
     samfile cat -i IMAGE -f FILE
     samfile extract -i IMAGE [-t TARGET]
     samfile ls -i IMAGE
+    samfile verify -i IMAGE
     samfile --help
     samfile --version
 
@@ -24,6 +25,9 @@ Manipulate files in SAM Coupé floppy disk images.
     extract               Extracts all files from a SAM Disk image file to a
                           local directory.
     ls                    Lists files on SAM Disk image file.
+    verify                Checks a SAM Disk image file for structural and
+                          consistency issues, reporting findings grouped by
+                          severity.
 
   Options:
     -i IMAGE              The raw floppy disk image (.mgt format / 819200 bytes)
