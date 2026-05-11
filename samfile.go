@@ -863,6 +863,7 @@ func (di *DiskImage) SetStartAddressPageUnusedBits(name string, bits uint8) erro
 		}
 		value := (fe.StartAddressPage & 0x1F) | (bits << 5)
 		fe.StartAddressPage = value
+		fe.MGTFutureAndPast[9] = value
 		di.WriteFileEntry(dj, slot)
 		di[fe.FirstSector.Offset()+8] = value
 		return nil
