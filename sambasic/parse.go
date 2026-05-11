@@ -48,7 +48,7 @@ func Parse(body []byte) (*File, error) {
 				}
 				display := []byte{}
 				for len(line.Tokens) > 0 {
-					last, ok := line.Tokens[len(line.Tokens)-1].(Literal)
+					last, ok := line.Tokens[len(line.Tokens)-1].(literal)
 					if !ok {
 						break
 					}
@@ -66,7 +66,7 @@ func Parse(body []byte) (*File, error) {
 				line.Tokens = append(line.Tokens, num)
 				i += 6
 			default:
-				line.Tokens = append(line.Tokens, Literal(b))
+				line.Tokens = append(line.Tokens, literal(b))
 				i++
 			}
 		}

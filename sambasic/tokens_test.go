@@ -69,10 +69,10 @@ func TestStrBytes(t *testing.T) {
 }
 
 func TestLiteralBytes(t *testing.T) {
-	l := Literal(':')
+	l := literal(':')
 	got := l.Bytes()
 	want := []byte{0x3A}
 	if !bytes.Equal(got, want) {
-		t.Errorf("Literal(':').Bytes() = %x; want %x", got, want)
+		t.Errorf("literal(':').Bytes() = %x; want %x", got, want)
 	}
 }
