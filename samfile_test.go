@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/petemoore/samfile/v3/sambasic"
 )
 
 // TestFileTypeInfoPageFormDecoding pins down the SAM Coupé "PAGEFORM"
@@ -631,5 +633,188 @@ func TestSAMBasicOutputBoundsChecks(t *testing.T) {
 				t.Fatalf("Output() returned nil error on truncated input %v; want non-nil", c.data)
 			}
 		})
+	}
+}
+
+func TestNewDiskImage(t *testing.T) {
+	di := NewDiskImage()
+	for i, b := range di {
+		if b != 0 {
+			t.Fatalf("NewDiskImage()[%d] = 0x%02x; want 0x00", i, b)
+		}
+	}
+	if len(di) != 819200 {
+		t.Fatalf("NewDiskImage() length = %d; want 819200", len(di))
+	}
+}
+
+func TestAddBasicFileRoundTrip(t *testing.T) {
+	f := &sambasic.File{
+		Lines: []sambasic.Line{
+			{
+				Number: 10,
+				Tokens: []sambasic.Token{
+					sambasic.CLEAR,
+					sambasic.Number(32767),
+					sambasic.Literal(':'),
+					sambasic.LOAD,
+					sambasic.Literal('"'),
+					sambasic.String("stub"),
+					sambasic.Literal('"'),
+					sambasic.CODE,
+					sambasic.Number(32768),
+					sambasic.Literal(':'),
+					sambasic.CALL,
+					sambasic.Number(32768),
+				},
+			},
+		},
+		StartLine: 10,
+	}
+
+	di := NewDiskImage()
+	if err := di.AddBasicFile("auto", f); err != nil {
+		t.Fatalf("AddBasicFile: %v", err)
+	}
+
+	readBack, err := di.File("auto")
+	if err != nil {
+		t.Fatalf("File(\"auto\"): %v", err)
+	}
+
+	wantBody := f.Bytes()
+	if !bytes.Equal(readBack.Body, wantBody) {
+		t.Errorf("readback body length = %d; want %d", len(readBack.Body), len(wantBody))
+	}
+
+	if readBack.Header.Type != FT_SAM_BASIC {
+		t.Errorf("header type = %d; want %d (FT_SAM_BASIC)", readBack.Header.Type, FT_SAM_BASIC)
+	}
+
+	var fe *FileEntry
+	for _, e := range di.DiskJournal() {
+		if e.Used() && e.Name.String() == "auto" {
+			fe = e
+			break
+		}
+	}
+	if fe == nil {
+		t.Fatal("auto entry not found in disk journal")
+	}
+	if fe.Type != FT_SAM_BASIC {
+		t.Errorf("fe.Type = %d; want %d", fe.Type, FT_SAM_BASIC)
+	}
+	if fe.MGTFlags != 0x20 {
+		t.Errorf("MGTFlags = 0x%02x; want 0x20", fe.MGTFlags)
+	}
+	if fe.SAMBASICStartLine != 10 {
+		t.Errorf("SAMBASICStartLine = %d; want 10", fe.SAMBASICStartLine)
+	}
+
+	if fe.ProgramLength() != f.NVARSOffset() {
+		t.Errorf("ProgramLength() = %d; want %d", fe.ProgramLength(), f.NVARSOffset())
+	}
+	if fe.ProgramLength()+fe.NumericVariablesSize() != f.NUMENDOffset() {
+		t.Errorf("ProgramLength+NumericVarsSize = %d; want %d",
+			fe.ProgramLength()+fe.NumericVariablesSize(), f.NUMENDOffset())
+	}
+	if fe.ProgramLength()+fe.NumericVariablesSize()+fe.GapSize() != f.SAVARSOffset() {
+		t.Errorf("ProgramLength+NumericVarsSize+GapSize = %d; want %d",
+			fe.ProgramLength()+fe.NumericVariablesSize()+fe.GapSize(), f.SAVARSOffset())
+	}
+
+	sb := NewSAMBasic(readBack.Body)
+	if err := sb.Output(); err != nil {
+		t.Errorf("SAMBasic.Output() on readback: %v", err)
+	}
+}
+
+func TestAddBasicFileNoAutoRun(t *testing.T) {
+	f := &sambasic.File{
+		Lines: []sambasic.Line{
+			{Number: 10, Tokens: []sambasic.Token{sambasic.PRINT, sambasic.String("hello")}},
+		},
+		StartLine: 0xFFFF,
+	}
+	di := NewDiskImage()
+	if err := di.AddBasicFile("test", f); err != nil {
+		t.Fatalf("AddBasicFile: %v", err)
+	}
+	var fe *FileEntry
+	for _, e := range di.DiskJournal() {
+		if e.Used() && e.Name.String() == "test" {
+			fe = e
+			break
+		}
+	}
+	if fe == nil {
+		t.Fatal("test entry not found")
+	}
+	if fe.ExecutionAddressDiv16K != 0xFF {
+		t.Errorf("ExecutionAddressDiv16K = 0x%02x; want 0xFF (no auto-run)", fe.ExecutionAddressDiv16K)
+	}
+}
+
+func TestMultiFileBasicAndCode(t *testing.T) {
+	di := NewDiskImage()
+
+	codeBody := bytes.Repeat([]byte{0xAA}, 1000)
+	if err := di.AddCodeFile("samdos2", codeBody, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile(samdos2): %v", err)
+	}
+
+	basicFile := &sambasic.File{
+		Lines: []sambasic.Line{
+			{
+				Number: 10,
+				Tokens: []sambasic.Token{
+					sambasic.CLEAR,
+					sambasic.Number(32767),
+					sambasic.Literal(':'),
+					sambasic.LOAD,
+					sambasic.Literal('"'),
+					sambasic.String("stub"),
+					sambasic.Literal('"'),
+					sambasic.CODE,
+					sambasic.Number(32768),
+					sambasic.Literal(':'),
+					sambasic.CALL,
+					sambasic.Number(32768),
+				},
+			},
+		},
+		StartLine: 10,
+	}
+	if err := di.AddBasicFile("auto", basicFile); err != nil {
+		t.Fatalf("AddBasicFile(auto): %v", err)
+	}
+
+	stubBody := bytes.Repeat([]byte{0xBB}, 100)
+	if err := di.AddCodeFile("stub", stubBody, 0x8000, 0x8000); err != nil {
+		t.Fatalf("AddCodeFile(stub): %v", err)
+	}
+
+	for _, name := range []string{"samdos2", "auto", "stub"} {
+		if _, err := di.File(name); err != nil {
+			t.Errorf("File(%q): %v", name, err)
+		}
+	}
+
+	dj := di.DiskJournal()
+	used := dj.UsedFileEntries()
+	if len(used) != 3 {
+		t.Errorf("used entries = %d; want 3", len(used))
+	}
+	for i := 0; i < len(used); i++ {
+		for j := i + 1; j < len(used); j++ {
+			a := dj[used[i]].SectorAddressMap
+			b := dj[used[j]].SectorAddressMap
+			for k := 0; k < len(a); k++ {
+				if a[k]&b[k] != 0 {
+					t.Errorf("sector maps for slots %d and %d overlap at byte %d: 0x%02x & 0x%02x",
+						used[i], used[j], k, a[k], b[k])
+				}
+			}
+		}
 	}
 }

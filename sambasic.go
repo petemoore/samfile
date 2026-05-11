@@ -3,6 +3,8 @@ package samfile
 import (
 	"fmt"
 	"os"
+
+	"github.com/petemoore/samfile/v3/sambasic"
 )
 
 type (
@@ -74,16 +76,14 @@ func (basic *SAMBasic) Output() error {
 					return fmt.Errorf("basic-to-text: truncated input: 0xff keyword escape at end of input (offset %d)", index+uint32(c))
 				}
 				b := basic.Data[index+uint32(c)]
-				if b < 0x3b {
+				name, ok := sambasic.KeywordName(b, true)
+				if !ok {
 					return fmt.Errorf("basic-to-text: invalid keyword byte 0x%02x after 0xff escape at offset %d", b, index+uint32(c))
-				}
-				if int(b-0x3b) >= len(keywords) {
-					return fmt.Errorf("basic-to-text: keyword index %d out of range (table has %d entries)", b-0x3b, len(keywords))
 				}
 				if !spaceBefore {
 					fmt.Print(" ")
 				}
-				fmt.Print(keywords[b-0x3b] + " ")
+				fmt.Print(name + " ")
 				spaceBefore = true
 			case b == 0x0e:
 				c += 5
@@ -93,13 +93,14 @@ func (basic *SAMBasic) Output() error {
 			case b < 0x20:
 				fmt.Printf("{%v}", int(b))
 			case b >= 0x85 && b <= 0xf6:
-				if int(b-0x3b) >= len(keywords) {
-					return fmt.Errorf("basic-to-text: keyword index %d out of range (table has %d entries)", b-0x3b, len(keywords))
+				name, ok := sambasic.KeywordName(b, false)
+				if !ok {
+					return fmt.Errorf("basic-to-text: keyword index %d out of range", b-0x3b)
 				}
 				if !spaceBefore {
 					fmt.Print(" ")
 				}
-				fmt.Print(keywords[b-0x3b] + " ")
+				fmt.Print(name + " ")
 				spaceBefore = true
 			default:
 				_, _ = os.Stdout.Write(basic.Data[index+uint32(c) : index+uint32(c)+1])
