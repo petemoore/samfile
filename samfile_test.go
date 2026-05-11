@@ -818,3 +818,237 @@ func TestMultiFileBasicAndCode(t *testing.T) {
 		}
 	}
 }
+
+// firstSectorBytes returns the first sector's payload for the named
+// file. Convenience wrapper for body-header assertions: AddCodeFile
+// writes the 9-byte FileHeader at body bytes 0..8 = first-sector
+// bytes 0..8, so callers can index directly.
+func firstSectorBytes(t *testing.T, di *DiskImage, name string) [512]byte {
+	t.Helper()
+	for _, fe := range di.DiskJournal() {
+		if fe.Used() && fe.Name.String() == name {
+			sd, err := di.SectorData(fe.FirstSector)
+			if err != nil {
+				t.Fatalf("SectorData(%v): %v", fe.FirstSector, err)
+			}
+			return [512]byte(*sd)
+		}
+	}
+	t.Fatalf("file %q not present on disk", name)
+	return [512]byte{}
+}
+
+func usedFileEntry(t *testing.T, di *DiskImage, name string) *FileEntry {
+	t.Helper()
+	for _, fe := range di.DiskJournal() {
+		if fe.Used() && fe.Name.String() == name {
+			return fe
+		}
+	}
+	t.Fatalf("file %q not present on disk", name)
+	return nil
+}
+
+// TestFileHeaderRawEmitsExecutionAddress pins down the body-header
+// bytes 5-6 encoding. The previous implementation hard-coded these
+// to 0x00 0x00, which broke ROM's LOAD-CODE auto-exec gate at
+// rom-disasm:22471-22484: a CODE file loaded via `LOAD ... CODE addr`
+// is auto-executed unless BOTH dir byte 0xF2 AND body-header byte 6
+// are 0xFF. Without this fix, a no-auto-exec file emitted by
+// AddCodeFile would mis-fire its post-load auto-exec on real SAM.
+func TestFileHeaderRawEmitsExecutionAddress(t *testing.T) {
+	cases := []struct {
+		name             string
+		execDiv16K       byte
+		execMod16KLo     byte
+		wantByte5        byte
+		wantByte6        byte
+	}{
+		{"no auto-exec (sentinel 0xff 0xff)", 0xFF, 0xFF, 0xFF, 0xFF},
+		{"auto-exec at 0x4000 (page 0, offset 0)", 0x00, 0x00, 0x00, 0x00},
+		{"auto-exec at 0x9039 (page 1, low byte 0x39)", 0x01, 0x39, 0x01, 0x39},
+		{"auto-exec at 0xC000 (page 2, low byte 0x00)", 0x02, 0x00, 0x02, 0x00},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fh := &FileHeader{
+				Type:                     FT_CODE,
+				LengthMod16K:             100,
+				PageOffset:               0x8000,
+				ExecutionAddressDiv16K:   c.execDiv16K,
+				ExecutionAddressMod16KLo: c.execMod16KLo,
+				Pages:                    0,
+				StartPage:                1,
+			}
+			raw := fh.Raw()
+			if raw[5] != c.wantByte5 {
+				t.Errorf("raw[5] = 0x%02x; want 0x%02x", raw[5], c.wantByte5)
+			}
+			if raw[6] != c.wantByte6 {
+				t.Errorf("raw[6] = 0x%02x; want 0x%02x", raw[6], c.wantByte6)
+			}
+		})
+	}
+}
+
+// TestAddCodeFileBodyHeaderAutoExecGate is the user-facing check for
+// the auto-exec gate: AddCodeFile with executionAddress=0 must produce
+// a body header whose bytes 5-6 are both 0xFF, so ROM's LOAD-CODE
+// path returns cleanly to BASIC after a load.
+func TestAddCodeFileBodyHeaderAutoExecGate(t *testing.T) {
+	di := NewDiskImage()
+	if err := di.AddCodeFile("F", []byte("test"), 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	first := firstSectorBytes(t, di, "F")
+	if first[5] != 0xFF || first[6] != 0xFF {
+		t.Errorf("body header bytes 5-6 = 0x%02x 0x%02x; want 0xFF 0xFF (no auto-exec)", first[5], first[6])
+	}
+}
+
+// TestAddCodeFileBodyHeaderExecAddrMirror pairs with the auto-exec
+// gate test above: when executionAddress IS set, the body header
+// must mirror ExecutionAddressDiv16K at byte 5 and ExecutionAddress-
+// Mod16K's low byte at byte 6 (the high byte doesn't fit in the
+// 9-byte body header — the dir entry's 0xF3-0xF4 are authoritative).
+func TestAddCodeFileBodyHeaderExecAddrMirror(t *testing.T) {
+	di := NewDiskImage()
+	if err := di.AddCodeFile("F", make([]byte, 1024), 0x8000, 0x8200); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	fe := usedFileEntry(t, di, "F")
+	first := firstSectorBytes(t, di, "F")
+	if first[5] != fe.ExecutionAddressDiv16K {
+		t.Errorf("body header byte 5 = 0x%02x; want 0x%02x (fe.ExecutionAddressDiv16K)", first[5], fe.ExecutionAddressDiv16K)
+	}
+	if first[6] != byte(fe.ExecutionAddressMod16K&0xFF) {
+		t.Errorf("body header byte 6 = 0x%02x; want 0x%02x (fe.ExecutionAddressMod16K low)", first[6], fe.ExecutionAddressMod16K&0xFF)
+	}
+}
+
+// TestAddCodeFileMirrorsMGTFutureAndPast verifies that addFile mirrors
+// the 9-byte body header into the directory entry's MGTFutureAndPast
+// field at offsets 1..9. Real disks saved by ROM SAVE always carry
+// this mirror; previously AddCodeFile left the region zeroed and only
+// AddBasicFile populated it.
+func TestAddCodeFileMirrorsMGTFutureAndPast(t *testing.T) {
+	di := NewDiskImage()
+	if err := di.AddCodeFile("F", []byte("hello world"), 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	fe := usedFileEntry(t, di, "F")
+	first := firstSectorBytes(t, di, "F")
+	for i := 0; i < 9; i++ {
+		if fe.MGTFutureAndPast[i+1] != first[i] {
+			t.Errorf("MGTFutureAndPast[%d] = 0x%02x; want 0x%02x (body header byte %d)",
+				i+1, fe.MGTFutureAndPast[i+1], first[i], i)
+		}
+	}
+	if fe.MGTFutureAndPast[0] != 0x00 {
+		t.Errorf("MGTFutureAndPast[0] = 0x%02x; want 0x00 (reserved)", fe.MGTFutureAndPast[0])
+	}
+}
+
+// TestAddBasicFileStillMirrorsMGTFutureAndPast guards against a
+// regression where the AddBasicFile path stopped populating
+// MGTFutureAndPast after the addFile-level mirror was added: the
+// mirror covers both code paths, so AddBasicFile output should still
+// carry the body-header mirror in the dir entry.
+func TestAddBasicFileStillMirrorsMGTFutureAndPast(t *testing.T) {
+	di := NewDiskImage()
+	bf := &sambasic.File{
+		Lines:     []sambasic.Line{{Number: 10, Tokens: []sambasic.Token{sambasic.PRINT, sambasic.String("hi")}}},
+		StartLine: 10,
+	}
+	if err := di.AddBasicFile("auto", bf); err != nil {
+		t.Fatalf("AddBasicFile: %v", err)
+	}
+	fe := usedFileEntry(t, di, "auto")
+	first := firstSectorBytes(t, di, "auto")
+	for i := 0; i < 9; i++ {
+		if fe.MGTFutureAndPast[i+1] != first[i] {
+			t.Errorf("MGTFutureAndPast[%d] = 0x%02x; want 0x%02x (body header byte %d)",
+				i+1, fe.MGTFutureAndPast[i+1], first[i], i)
+		}
+	}
+}
+
+// TestSetStartAddressPageUnusedBits verifies the override mechanism
+// for canonical-SAVE byte parity: SetStartAddressPageUnusedBits must
+// set the upper 3 bits of StartAddressPage in both the directory
+// entry (raw[0xEC]) and the matching body-header byte 8 while
+// preserving the low 5 bits (the actual page index derived by
+// AddCodeFile from the load address).
+//
+// The canonical FRED 02 / Defender samdos2 install records 0x7D there
+// (= 3<<5 | 0x1D = page 29 with the top two bits set). The bits are
+// unread by ROM and SAMDOS; this method exists for byte-perfect
+// parity with historical disk images.
+func TestSetStartAddressPageUnusedBits(t *testing.T) {
+	cases := []struct {
+		name             string
+		bits             uint8
+		wantStartAddrPg  byte
+	}{
+		{"zero (default)", 0, 0x1D},
+		{"bit 5 only", 1, 0x3D},
+		{"FRED 02 / Defender samdos2 (bits 5+6)", 3, 0x7D},
+		{"bit 7 only", 4, 0x9D},
+		{"all three (0xE0)", 7, 0xFD},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			di := NewDiskImage()
+			const loadAddress = uint32(491529) // page 29 + offset 9
+			if err := di.AddCodeFile("samdos2", make([]byte, 10000), loadAddress, 0); err != nil {
+				t.Fatalf("AddCodeFile: %v", err)
+			}
+			if got := usedFileEntry(t, di, "samdos2").StartAddressPage; got != 0x1D {
+				t.Fatalf("StartAddressPage before override = 0x%02x; want 0x1D (page 29, no unused bits)", got)
+			}
+			if err := di.SetStartAddressPageUnusedBits("samdos2", c.bits); err != nil {
+				t.Fatalf("SetStartAddressPageUnusedBits: %v", err)
+			}
+			fe := usedFileEntry(t, di, "samdos2")
+			if fe.StartAddressPage != c.wantStartAddrPg {
+				t.Errorf("dir entry StartAddressPage = 0x%02x; want 0x%02x", fe.StartAddressPage, c.wantStartAddrPg)
+			}
+			first := firstSectorBytes(t, di, "samdos2")
+			if first[8] != c.wantStartAddrPg {
+				t.Errorf("body header byte 8 = 0x%02x; want 0x%02x", first[8], c.wantStartAddrPg)
+			}
+			// ROM masks to 0x1F when reading, so decoded Start is unchanged.
+			if got, want := fe.StartAddress(), loadAddress; got != want {
+				t.Errorf("decoded Start after override = %d; want %d (unused bits must not affect the address)", got, want)
+			}
+		})
+	}
+}
+
+// TestSetStartAddressPageUnusedBitsOutOfRange confirms that values
+// above 7 are rejected — the API is for 3 bits only.
+func TestSetStartAddressPageUnusedBitsOutOfRange(t *testing.T) {
+	di := NewDiskImage()
+	if err := di.AddCodeFile("F", []byte("test"), 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	for _, bad := range []uint8{8, 16, 32, 0x60, 0x7D, 0xFF} {
+		if err := di.SetStartAddressPageUnusedBits("F", bad); err == nil {
+			t.Errorf("SetStartAddressPageUnusedBits(%d) returned nil; want out-of-range error", bad)
+		}
+	}
+}
+
+// TestSetStartAddressPageUnusedBitsMissingFile confirms the helper
+// errors cleanly when the named file isn't on disk.
+func TestSetStartAddressPageUnusedBitsMissingFile(t *testing.T) {
+	di := NewDiskImage()
+	err := di.SetStartAddressPageUnusedBits("nope", 3)
+	if err == nil {
+		t.Fatal("SetStartAddressPageUnusedBits returned nil error for missing file")
+	}
+	if !strings.Contains(err.Error(), "nope") {
+		t.Errorf("error message = %q; want it to mention the missing filename", err.Error())
+	}
+}
+
