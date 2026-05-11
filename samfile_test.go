@@ -754,3 +754,67 @@ func TestAddBasicFileNoAutoRun(t *testing.T) {
 		t.Errorf("ExecutionAddressDiv16K = 0x%02x; want 0xFF (no auto-run)", fe.ExecutionAddressDiv16K)
 	}
 }
+
+func TestMultiFileBasicAndCode(t *testing.T) {
+	di := NewDiskImage()
+
+	codeBody := bytes.Repeat([]byte{0xAA}, 1000)
+	if err := di.AddCodeFile("samdos2", codeBody, 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile(samdos2): %v", err)
+	}
+
+	basicFile := &sambasic.File{
+		Lines: []sambasic.Line{
+			{
+				Number: 10,
+				Tokens: []sambasic.Token{
+					sambasic.CLEAR,
+					sambasic.Number(32767),
+					sambasic.Literal(':'),
+					sambasic.LOAD,
+					sambasic.Literal('"'),
+					sambasic.String("stub"),
+					sambasic.Literal('"'),
+					sambasic.CODE,
+					sambasic.Number(32768),
+					sambasic.Literal(':'),
+					sambasic.CALL,
+					sambasic.Number(32768),
+				},
+			},
+		},
+		StartLine: 10,
+	}
+	if err := di.AddBasicFile("auto", basicFile); err != nil {
+		t.Fatalf("AddBasicFile(auto): %v", err)
+	}
+
+	stubBody := bytes.Repeat([]byte{0xBB}, 100)
+	if err := di.AddCodeFile("stub", stubBody, 0x8000, 0x8000); err != nil {
+		t.Fatalf("AddCodeFile(stub): %v", err)
+	}
+
+	for _, name := range []string{"samdos2", "auto", "stub"} {
+		if _, err := di.File(name); err != nil {
+			t.Errorf("File(%q): %v", name, err)
+		}
+	}
+
+	dj := di.DiskJournal()
+	used := dj.UsedFileEntries()
+	if len(used) != 3 {
+		t.Errorf("used entries = %d; want 3", len(used))
+	}
+	for i := 0; i < len(used); i++ {
+		for j := i + 1; j < len(used); j++ {
+			a := dj[used[i]].SectorAddressMap
+			b := dj[used[j]].SectorAddressMap
+			for k := 0; k < len(a); k++ {
+				if a[k]&b[k] != 0 {
+					t.Errorf("sector maps for slots %d and %d overlap at byte %d: 0x%02x & 0x%02x",
+						used[i], used[j], k, a[k], b[k])
+				}
+			}
+		}
+	}
+}
