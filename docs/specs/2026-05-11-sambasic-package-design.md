@@ -244,15 +244,23 @@ Serialize via `File.Bytes()` and compare byte-for-byte against the
 known-good output from `build-disk.sh`. This validates tokenization,
 line framing, numeric form encoding, and trailer generation.
 
-### 2. Real disk roundtrip tests
+### 2. Exhaustive real disk roundtrip tests
 
-For BASIC files extracted from `~/Downloads/GoodSamC2/*.mgt`:
-- Extract raw body bytes via `DiskImage.File()`
-- Parse the PROG section back into `sambasic.File` (requires a
-  `Parse([]byte) (*File, error)` function — needed for roundtrip
-  verification even if not a primary deliverable)
-- Re-serialize with `File.Bytes()`
-- Compare: serialized bytes must equal original body bytes
+Systematically loop through every `.mgt` file in
+`~/Downloads/GoodSamC2/`, load each disk image, enumerate all files
+via `DiskJournal`, and for every file with type `FT_SAM_BASIC`:
+
+1. Extract raw body bytes via `DiskImage.File()`
+2. Parse the body into a `sambasic.File` (requires a
+   `Parse([]byte) (*File, error)` function — needed for roundtrip
+   verification even if not a primary deliverable)
+3. Re-serialize with `File.Bytes()`
+4. Compare: serialized bytes must equal original body bytes
+
+The test should report per-disk, per-file pass/fail and aggregate
+statistics (total disks scanned, total BASIC files tested, pass/fail
+counts). This gives comprehensive real-world coverage — the GoodSamC2
+collection contains hundreds of disks with diverse BASIC programs.
 
 ### 3. Detokenizer consistency test
 
