@@ -13,11 +13,12 @@ import (
 // ----- CROSS-NO-SECTOR-OVERLAP -----
 func init() {
 	Register(Rule{
-		ID:          "CROSS-NO-SECTOR-OVERLAP",
-		Severity:    SeverityInconsistency,
-		Description: "no two used files claim the same data sector",
-		Citation:    "samdos/src/c.s:895-951",
-		Check:       checkCrossNoSectorOverlap,
+		ID:            "CROSS-NO-SECTOR-OVERLAP",
+		Severity:      SeverityInconsistency,
+		Description:   "no two used files claim the same data sector",
+		Citation:      "samdos/src/c.s:895-951",
+		Check:         checkCrossNoSectorOverlap,
+		Applicability: &RuleApplicability{Scope: DiskScope},
 	})
 }
 
@@ -55,11 +56,12 @@ func checkCrossNoSectorOverlap(ctx *CheckContext) []Finding {
 // ----- CROSS-NO-DUPLICATE-NAMES -----
 func init() {
 	Register(Rule{
-		ID:          "CROSS-NO-DUPLICATE-NAMES",
-		Severity:    SeverityInconsistency,
-		Description: "no two used directory entries share the same filename (case-insensitive)",
-		Citation:    "samdos/src/c.s:1196-1219",
-		Check:       checkCrossNoDuplicateNames,
+		ID:            "CROSS-NO-DUPLICATE-NAMES",
+		Severity:      SeverityInconsistency,
+		Description:   "no two used directory entries share the same filename (case-insensitive)",
+		Citation:      "samdos/src/c.s:1196-1219",
+		Check:         checkCrossNoDuplicateNames,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -89,11 +91,12 @@ func checkCrossNoDuplicateNames(ctx *CheckContext) []Finding {
 // ----- CROSS-DIRECTORY-AREA-UNUSED -----
 func init() {
 	Register(Rule{
-		ID:          "CROSS-DIRECTORY-AREA-UNUSED",
-		Severity:    SeverityStructural,
-		Description: "no chain link in any used file references a directory-area sector (tracks 0-3 of side 0)",
-		Citation:    "samfile.go:984-987",
-		Check:       checkCrossDirectoryAreaUnused,
+		ID:            "CROSS-DIRECTORY-AREA-UNUSED",
+		Severity:      SeverityStructural,
+		Description:   "no chain link in any used file references a directory-area sector (tracks 0-3 of side 0)",
+		Citation:      "samfile.go:984-987",
+		Check:         checkCrossDirectoryAreaUnused,
+		Applicability: &RuleApplicability{Scope: DiskScope},
 	})
 }
 

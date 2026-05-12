@@ -65,11 +65,12 @@ func trackSectorRefs(ctx *CheckContext) []sectorRef {
 
 func init() {
 	Register(Rule{
-		ID:          "DISK-DIRECTORY-TRACKS",
-		Severity:    SeverityStructural,
-		Description: "no file references a sector in the directory area (tracks 0-3 of side 0)",
-		Citation:    "sam-coupe_tech-man_v3-0.txt:4340-4343",
-		Check:       checkDiskDirectoryTracks,
+		ID:            "DISK-DIRECTORY-TRACKS",
+		Severity:      SeverityStructural,
+		Description:   "no file references a sector in the directory area (tracks 0-3 of side 0)",
+		Citation:      "sam-coupe_tech-man_v3-0.txt:4340-4343",
+		Check:         checkDiskDirectoryTracks,
+		Applicability: &RuleApplicability{Scope: DiskScope},
 	})
 }
 
@@ -97,11 +98,12 @@ func checkDiskDirectoryTracks(ctx *CheckContext) []Finding {
 
 func init() {
 	Register(Rule{
-		ID:          "DISK-TRACK-SIDE-ENCODING",
-		Severity:    SeverityFatal,
-		Description: "every track byte references a physical cylinder 0-79 on side 0 or side 1",
-		Citation:    "samfile.go:393-394",
-		Check:       checkDiskTrackSideEncoding,
+		ID:            "DISK-TRACK-SIDE-ENCODING",
+		Severity:      SeverityFatal,
+		Description:   "every track byte references a physical cylinder 0-79 on side 0 or side 1",
+		Citation:      "samfile.go:393-394",
+		Check:         checkDiskTrackSideEncoding,
+		Applicability: &RuleApplicability{Scope: DiskScope},
 	})
 }
 
@@ -130,11 +132,12 @@ func checkDiskTrackSideEncoding(ctx *CheckContext) []Finding {
 
 func init() {
 	Register(Rule{
-		ID:          "DISK-SECTOR-RANGE",
-		Severity:    SeverityFatal,
-		Description: "every sector number is in range 1-10 (or 0 for the chain terminator)",
-		Citation:    "samfile.go:389-392",
-		Check:       checkDiskSectorRange,
+		ID:            "DISK-SECTOR-RANGE",
+		Severity:      SeverityFatal,
+		Description:   "every sector number is in range 1-10 (or 0 for the chain terminator)",
+		Citation:      "samfile.go:389-392",
+		Check:         checkDiskSectorRange,
+		Applicability: &RuleApplicability{Scope: DiskScope},
 	})
 }
 

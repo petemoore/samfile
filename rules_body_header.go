@@ -66,11 +66,12 @@ func bodyDirMirrorFinding(
 // has zero load-time consequence.
 func init() {
 	Register(Rule{
-		ID:          "BODY-TYPE-MATCHES-DIR",
-		Severity:    SeverityCosmetic,
-		Description: "body header Type byte equals directory-entry Type (attribute bits masked)",
-		Citation:    "samdos/src/c.s:1395-1408",
-		Check:       checkBodyTypeMatchesDir,
+		ID:            "BODY-TYPE-MATCHES-DIR",
+		Severity:      SeverityCosmetic,
+		Description:   "body header Type byte equals directory-entry Type (attribute bits masked)",
+		Citation:      "samdos/src/c.s:1395-1408",
+		Check:         checkBodyTypeMatchesDir,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -109,11 +110,12 @@ func checkBodyTypeMatchesDir(ctx *CheckContext) []Finding {
 // auto-exec from page 0 even though dir disables auto-exec.
 func init() {
 	Register(Rule{
-		ID:          "BODY-EXEC-DIV16K-MATCHES-DIR",
-		Severity:    SeverityStructural,
-		Description: "FT_CODE body-header ExecutionAddressDiv16K (byte 5) equals dir-entry ExecutionAddressDiv16K (skipped when body[5]==0xFF — the canonical 'defer to dir' pattern)",
-		Citation:    "rom-disasm:22471-22484",
-		Check:       checkBodyExecDiv16KMatchesDir,
+		ID:            "BODY-EXEC-DIV16K-MATCHES-DIR",
+		Severity:      SeverityStructural,
+		Description:   "FT_CODE body-header ExecutionAddressDiv16K (byte 5) equals dir-entry ExecutionAddressDiv16K (skipped when body[5]==0xFF — the canonical 'defer to dir' pattern)",
+		Citation:      "rom-disasm:22471-22484",
+		Check:         checkBodyExecDiv16KMatchesDir,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_CODE)},
 	})
 }
 
@@ -156,11 +158,12 @@ func checkBodyExecDiv16KMatchesDir(ctx *CheckContext) []Finding {
 // an exec address.
 func init() {
 	Register(Rule{
-		ID:          "BODY-EXEC-MOD16K-LO-MATCHES-DIR",
-		Severity:    SeverityInconsistency,
-		Description: "FT_CODE body-header ExecutionAddressMod16KLo (byte 6) equals low byte of dir-entry ExecutionAddressMod16K (skipped when body[5]==0xFF — body byte 6 is meaningless under the 'defer to dir' pattern)",
-		Citation:    "rom-disasm:22472",
-		Check:       checkBodyExecMod16KLoMatchesDir,
+		ID:            "BODY-EXEC-MOD16K-LO-MATCHES-DIR",
+		Severity:      SeverityInconsistency,
+		Description:   "FT_CODE body-header ExecutionAddressMod16KLo (byte 6) equals low byte of dir-entry ExecutionAddressMod16K (skipped when body[5]==0xFF — body byte 6 is meaningless under the 'defer to dir' pattern)",
+		Citation:      "rom-disasm:22472",
+		Check:         checkBodyExecMod16KLoMatchesDir,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_CODE)},
 	})
 }
 
@@ -196,11 +199,12 @@ func checkBodyExecMod16KLoMatchesDir(ctx *CheckContext) []Finding {
 // load path via gtfle/hconr/txhed.
 func init() {
 	Register(Rule{
-		ID:          "BODY-PAGES-MATCHES-DIR",
-		Severity:    SeverityCosmetic,
-		Description: "body header Pages (byte 7) equals dir-entry Pages",
-		Citation:    "samdos/src/c.s:1376-1379",
-		Check:       checkBodyPagesMatchesDir,
+		ID:            "BODY-PAGES-MATCHES-DIR",
+		Severity:      SeverityCosmetic,
+		Description:   "body header Pages (byte 7) equals dir-entry Pages",
+		Citation:      "samdos/src/c.s:1376-1379",
+		Check:         checkBodyPagesMatchesDir,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -227,11 +231,12 @@ func checkBodyPagesMatchesDir(ctx *CheckContext) []Finding {
 // the dir entry via uifa+31 → page1 through hconr (h.s:346-347).
 func init() {
 	Register(Rule{
-		ID:          "BODY-STARTPAGE-MATCHES-DIR",
-		Severity:    SeverityCosmetic,
-		Description: "body header StartPage (byte 8) equals dir-entry StartAddressPage",
-		Citation:    "samdos/src/c.s:1376-1379",
-		Check:       checkBodyStartPageMatchesDir,
+		ID:            "BODY-STARTPAGE-MATCHES-DIR",
+		Severity:      SeverityCosmetic,
+		Description:   "body header StartPage (byte 8) equals dir-entry StartAddressPage",
+		Citation:      "samdos/src/c.s:1376-1379",
+		Check:         checkBodyStartPageMatchesDir,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -258,11 +263,12 @@ func checkBodyStartPageMatchesDir(ctx *CheckContext) []Finding {
 // the load path uses.
 func init() {
 	Register(Rule{
-		ID:          "BODY-LENGTHMOD16K-MATCHES-DIR",
-		Severity:    SeverityCosmetic,
-		Description: "body header LengthMod16K (bytes 1-2 LE) equals dir-entry LengthMod16K",
-		Citation:    "samdos/src/c.s:1376-1379",
-		Check:       checkBodyLengthMod16KMatchesDir,
+		ID:            "BODY-LENGTHMOD16K-MATCHES-DIR",
+		Severity:      SeverityCosmetic,
+		Description:   "body header LengthMod16K (bytes 1-2 LE) equals dir-entry LengthMod16K",
+		Citation:      "samdos/src/c.s:1376-1379",
+		Check:         checkBodyLengthMod16KMatchesDir,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -294,11 +300,12 @@ func checkBodyLengthMod16KMatchesDir(ctx *CheckContext) []Finding {
 // (h.s:349-350) populates hd0d1 from on the load path.
 func init() {
 	Register(Rule{
-		ID:          "BODY-PAGEOFFSET-MATCHES-DIR",
-		Severity:    SeverityCosmetic,
-		Description: "body header PageOffset (bytes 3-4 LE) equals dir-entry StartAddressPageOffset",
-		Citation:    "samdos/src/c.s:1376-1379",
-		Check:       checkBodyPageOffsetMatchesDir,
+		ID:            "BODY-PAGEOFFSET-MATCHES-DIR",
+		Severity:      SeverityCosmetic,
+		Description:   "body header PageOffset (bytes 3-4 LE) equals dir-entry StartAddressPageOffset",
+		Citation:      "samdos/src/c.s:1376-1379",
+		Check:         checkBodyPageOffsetMatchesDir,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -342,11 +349,12 @@ func checkBodyPageOffsetMatchesDir(ctx *CheckContext) []Finding {
 // is irreconcilable with "buggy writer" framing.
 func init() {
 	Register(Rule{
-		ID:          "BODY-MIRROR-AT-DIR-D3-DB",
-		Severity:    SeverityCosmetic,
-		Description: "dir bytes 0xD3..0xDB mirror body header bytes 0..8 (and dir byte 0xD2 is 0)",
-		Citation:    "samdos/src/f.s:462-471",
-		Check:       checkBodyMirrorAtDirD3DB,
+		ID:            "BODY-MIRROR-AT-DIR-D3-DB",
+		Severity:      SeverityCosmetic,
+		Description:   "dir bytes 0xD3..0xDB mirror body header bytes 0..8 (and dir byte 0xD2 is 0)",
+		Citation:      "samdos/src/f.s:462-471",
+		Check:         checkBodyMirrorAtDirD3DB,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -393,11 +401,12 @@ func checkBodyMirrorAtDirD3DB(ctx *CheckContext) []Finding {
 // a useful corpus-validation signal.
 func init() {
 	Register(Rule{
-		ID:          "BODY-PAGEOFFSET-8000H-FORM",
-		Severity:    SeverityCosmetic,
-		Description: "body-header PageOffset has bit 15 set (8000H-form convention)",
-		Citation:    "sam-coupe_tech-man_v3-0.txt:3037-3052",
-		Check:       checkBodyPageOffset8000HForm,
+		ID:            "BODY-PAGEOFFSET-8000H-FORM",
+		Severity:      SeverityCosmetic,
+		Description:   "body-header PageOffset has bit 15 set (8000H-form convention)",
+		Citation:      "sam-coupe_tech-man_v3-0.txt:3037-3052",
+		Check:         checkBodyPageOffset8000HForm,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -431,11 +440,12 @@ func checkBodyPageOffset8000HForm(ctx *CheckContext) []Finding {
 // marker, e.g. by SAMBASIC). Real on-disk load addresses use 0..30.
 func init() {
 	Register(Rule{
-		ID:          "BODY-PAGE-LE-31",
-		Severity:    SeverityStructural,
-		Description: "body-header StartPage's low 5 bits encode an on-disk page index (0..30)",
-		Citation:    "samfile.go:248-249",
-		Check:       checkBodyPageLE31,
+		ID:            "BODY-PAGE-LE-31",
+		Severity:      SeverityStructural,
+		Description:   "body-header StartPage's low 5 bits encode an on-disk page index (0..30)",
+		Citation:      "samfile.go:248-249",
+		Check:         checkBodyPageLE31,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -470,11 +480,12 @@ func checkBodyPageLE31(ctx *CheckContext) []Finding {
 // the rule documents the {FF, FF} convention.
 func init() {
 	Register(Rule{
-		ID:          "BODY-BYTES-5-6-CANONICAL-FF",
-		Severity:    SeverityCosmetic,
-		Description: "when body[5]==0xFF (no auto-exec), real SAVE writes body[6]==0xFF too",
-		Citation:    "rom-disasm:22076-22080",
-		Check:       checkBodyBytes56CanonicalFF,
+		ID:            "BODY-BYTES-5-6-CANONICAL-FF",
+		Severity:      SeverityCosmetic,
+		Description:   "when body[5]==0xFF (no auto-exec), real SAVE writes body[6]==0xFF too",
+		Citation:      "rom-disasm:22076-22080",
+		Check:         checkBodyBytes56CanonicalFF,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 

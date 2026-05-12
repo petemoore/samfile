@@ -71,11 +71,12 @@ func walkChain(di *DiskImage, first *Sector) chainWalkResult {
 // ----- CHAIN-TERMINATOR-ZERO-ZERO -----
 func init() {
 	Register(Rule{
-		ID:          "CHAIN-TERMINATOR-ZERO-ZERO",
-		Severity:    SeverityStructural,
-		Description: "each used file's sector chain ends with a (0, 0) link",
-		Citation:    "samdos/src/b.s:104-110",
-		Check:       checkChainTerminatorZeroZero,
+		ID:            "CHAIN-TERMINATOR-ZERO-ZERO",
+		Severity:      SeverityStructural,
+		Description:   "each used file's sector chain ends with a (0, 0) link",
+		Citation:      "samdos/src/b.s:104-110",
+		Check:         checkChainTerminatorZeroZero,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -110,11 +111,12 @@ func checkChainTerminatorZeroZero(ctx *CheckContext) []Finding {
 // ----- CHAIN-NO-CYCLE -----
 func init() {
 	Register(Rule{
-		ID:          "CHAIN-NO-CYCLE",
-		Severity:    SeverityStructural,
-		Description: "each used file's sector chain has no revisited sectors",
-		Citation:    "samfile.go:743-754",
-		Check:       checkChainNoCycle,
+		ID:            "CHAIN-NO-CYCLE",
+		Severity:      SeverityStructural,
+		Description:   "each used file's sector chain has no revisited sectors",
+		Citation:      "samfile.go:743-754",
+		Check:         checkChainNoCycle,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -138,11 +140,12 @@ func checkChainNoCycle(ctx *CheckContext) []Finding {
 // ----- CHAIN-MATCHES-SAM -----
 func init() {
 	Register(Rule{
-		ID:          "CHAIN-MATCHES-SAM",
-		Severity:    SeverityInconsistency,
-		Description: "the set of sectors walked by the chain equals the bits set in the SectorAddressMap",
-		Citation:    "samdos/src/c.s:1306-1343",
-		Check:       checkChainMatchesSAM,
+		ID:            "CHAIN-MATCHES-SAM",
+		Severity:      SeverityInconsistency,
+		Description:   "the set of sectors walked by the chain equals the bits set in the SectorAddressMap",
+		Citation:      "samdos/src/c.s:1306-1343",
+		Check:         checkChainMatchesSAM,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -190,11 +193,12 @@ func checkChainMatchesSAM(ctx *CheckContext) []Finding {
 // ----- CHAIN-SECTOR-COUNT-MINIMAL -----
 func init() {
 	Register(Rule{
-		ID:          "CHAIN-SECTOR-COUNT-MINIMAL",
-		Severity:    SeverityCosmetic,
-		Description: "used file occupies exactly ceil((9 + body length) / 510) sectors (no padding sectors)",
-		Citation:    "samfile.go:919",
-		Check:       checkChainSectorCountMinimal,
+		ID:            "CHAIN-SECTOR-COUNT-MINIMAL",
+		Severity:      SeverityCosmetic,
+		Description:   "used file occupies exactly ceil((9 + body length) / 510) sectors (no padding sectors)",
+		Citation:      "samfile.go:919",
+		Check:         checkChainSectorCountMinimal,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 

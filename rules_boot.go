@@ -41,11 +41,12 @@ func bootSlot(dj *DiskJournal) (slot int, fe *FileEntry, found bool) {
 // catalog severity is structural (bootability), not fatal.
 func init() {
 	Register(Rule{
-		ID:          "BOOT-OWNER-AT-T4S1",
-		Severity:    SeverityStructural,
-		Description: "some used directory entry has FirstSector (4, 1) so the disk is bootable on SAM hardware",
-		Citation:    "rom-disasm:20473-20598",
-		Check:       checkBootOwnerAtT4S1,
+		ID:            "BOOT-OWNER-AT-T4S1",
+		Severity:      SeverityStructural,
+		Description:   "some used directory entry has FirstSector (4, 1) so the disk is bootable on SAM hardware",
+		Citation:      "rom-disasm:20473-20598",
+		Check:         checkBootOwnerAtT4S1,
+		Applicability: &RuleApplicability{Scope: DiskScope},
 	})
 }
 
@@ -76,11 +77,12 @@ func checkBootOwnerAtT4S1(ctx *CheckContext) []Finding {
 // (bootability), not fatal.
 func init() {
 	Register(Rule{
-		ID:          "BOOT-SIGNATURE-AT-256",
-		Severity:    SeverityStructural,
-		Description: "T4S1 bytes 256-259 spell \"BOOT\" (case-insensitive, bit 7 ignored)",
-		Citation:    "rom-disasm:20582-20598",
-		Check:       checkBootSignatureAt256,
+		ID:            "BOOT-SIGNATURE-AT-256",
+		Severity:      SeverityStructural,
+		Description:   "T4S1 bytes 256-259 spell \"BOOT\" (case-insensitive, bit 7 ignored)",
+		Citation:      "rom-disasm:20582-20598",
+		Check:         checkBootSignatureAt256,
+		Applicability: &RuleApplicability{Scope: DiskScope},
 	})
 }
 
@@ -121,11 +123,12 @@ func checkBootSignatureAt256(ctx *CheckContext) []Finding {
 // are useful negative signals. Cosmetic per the catalog's test sketch.
 func init() {
 	Register(Rule{
-		ID:          "BOOT-ENTRY-POINT-AT-9",
-		Severity:    SeverityCosmetic,
-		Description: "T4S1 body byte 0 (sector offset 9) is not 0x00 or 0xFF — a heuristic plausibility check for Z80 boot code",
-		Citation:    "rom-disasm:20598",
-		Check:       checkBootEntryPointAt9,
+		ID:            "BOOT-ENTRY-POINT-AT-9",
+		Severity:      SeverityCosmetic,
+		Description:   "T4S1 body byte 0 (sector offset 9) is not 0x00 or 0xFF — a heuristic plausibility check for Z80 boot code",
+		Citation:      "rom-disasm:20598",
+		Check:         checkBootEntryPointAt9,
+		Applicability: &RuleApplicability{Scope: DiskScope},
 	})
 }
 

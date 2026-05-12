@@ -14,11 +14,12 @@ import "fmt"
 // FT_ZX_SNAPSHOT has a 49,152-byte body (48 KiB ZX RAM).
 func init() {
 	Register(Rule{
-		ID:          "ZXSNAP-LENGTH-49152",
-		Severity:    SeverityStructural,
-		Description: "FT_ZX_SNAPSHOT body is exactly 49152 bytes (48 KiB ZX RAM)",
-		Citation:    "samdos/src/d.s:660-661",
-		Check:       checkZXSnapLength49152,
+		ID:            "ZXSNAP-LENGTH-49152",
+		Severity:      SeverityStructural,
+		Description:   "FT_ZX_SNAPSHOT body is exactly 49152 bytes (48 KiB ZX RAM)",
+		Citation:      "samdos/src/d.s:660-661",
+		Check:         checkZXSnapLength49152,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_ZX_SNAPSHOT)},
 	})
 }
 
@@ -44,11 +45,12 @@ func checkZXSnapLength49152(ctx *CheckContext) []Finding {
 // FT_ZX_SNAPSHOT load address is 0x4000 (ZX RAM base).
 func init() {
 	Register(Rule{
-		ID:          "ZXSNAP-LOAD-ADDR-16384",
-		Severity:    SeverityStructural,
-		Description: "FT_ZX_SNAPSHOT decoded start address is 0x4000 (16384, ZX RAM base)",
-		Citation:    "samdos/src/d.s:660-663",
-		Check:       checkZXSnapLoadAddr16384,
+		ID:            "ZXSNAP-LOAD-ADDR-16384",
+		Severity:      SeverityStructural,
+		Description:   "FT_ZX_SNAPSHOT decoded start address is 0x4000 (16384, ZX RAM base)",
+		Citation:      "samdos/src/d.s:660-663",
+		Check:         checkZXSnapLoadAddr16384,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_ZX_SNAPSHOT)},
 	})
 }
 
