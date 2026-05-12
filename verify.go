@@ -263,12 +263,14 @@ func (r VerifyReport) Filter(opts FilterOpts) []Finding {
 // populated — individual rule failures are surfaced as Findings,
 // not Go errors. Verify itself does not return an error.
 //
-// In Phase 1, dialect detection is not yet implemented and Verify
-// always passes DialectUnknown to rules; rules whose Dialects slice
-// is non-empty and excludes DialectUnknown are skipped. Phase 2
-// adds DetectDialect.
+// Verify calls DetectDialect to infer the dialect that wrote di,
+// then runs every registered rule whose Dialects slice is empty
+// (all-dialects) or contains the detected dialect. Rules scoped to a
+// dialect other than the one detected are skipped. DetectDialect is
+// conservative: when it returns DialectUnknown (empty or ambiguous
+// disks), only all-dialects rules run.
 func (di *DiskImage) Verify() VerifyReport {
-	dialect := DialectUnknown
+	dialect := DetectDialect(di)
 	ctx := &CheckContext{
 		Disk:    di,
 		Journal: di.DiskJournal(),

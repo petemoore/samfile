@@ -296,7 +296,7 @@ func TestVerifyRespectsDialectScoping(t *testing.T) {
 	})
 
 	di := NewDiskImage()
-	di.Verify() // Phase 1 always passes DialectUnknown
+	di.Verify() // empty disk: DetectDialect returns DialectUnknown
 
 	if allDialects != 1 {
 		t.Errorf("all-dialects rule called %d times; want 1", allDialects)
@@ -313,8 +313,8 @@ func TestVerifyReportCarriesDialect(t *testing.T) {
 
 	di := NewDiskImage()
 	report := di.Verify()
-	// Phase 1: dialect detection is not implemented; always DialectUnknown.
+	// Empty disk has no signals; DetectDialect returns Unknown.
 	if report.Dialect != DialectUnknown {
-		t.Errorf("Dialect = %v; want unknown (detection lands in Phase 2)", report.Dialect)
+		t.Errorf("Dialect = %v; want unknown for empty disk", report.Dialect)
 	}
 }
