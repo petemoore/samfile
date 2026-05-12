@@ -3,3 +3,4 @@
 # samfile package name; anchor with leading / so we don't ignore
 # any future samfile/ source subdirectory.
 /samfile
+tools/audit/__pycache__/

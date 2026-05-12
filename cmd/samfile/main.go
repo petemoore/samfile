@@ -44,7 +44,11 @@ func main() {
 	case arguments["add"]:
 		add(arguments)
 	case arguments["verify"]:
-		if err := runVerify(arguments["-i"].(string)); err != nil {
+		format := "text"
+		if v, ok := arguments["--format"].(string); ok && v != "" {
+			format = v
+		}
+		if err := runVerify(arguments["-i"].(string), format); err != nil {
 			log.Fatal(err)
 		}
 	default:

@@ -23,11 +23,12 @@ func forEachUsedSlot(ctx *CheckContext, fn func(slot int, fe *FileEntry)) {
 // ----- DIR-TYPE-BYTE-IS-KNOWN -----
 func init() {
 	Register(Rule{
-		ID:          "DIR-TYPE-BYTE-IS-KNOWN",
-		Severity:    SeverityInconsistency,
-		Description: "directory type byte (low 5 bits, attribute bits masked) is one of the documented file types",
-		Citation:    "samdos/src/e.s:322-355",
-		Check:       checkDirTypeByteIsKnown,
+		ID:            "DIR-TYPE-BYTE-IS-KNOWN",
+		Severity:      SeverityInconsistency,
+		Description:   "directory type byte (low 5 bits, attribute bits masked) is one of the documented file types",
+		Citation:      "samdos/src/e.s:322-355",
+		Check:         checkDirTypeByteIsKnown,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -89,11 +90,12 @@ func checkDirTypeByteIsKnown(ctx *CheckContext) []Finding {
 // recoverable header").
 func init() {
 	Register(Rule{
-		ID:          "DIR-ERASED-IS-ZERO",
-		Severity:    SeverityInconsistency,
-		Description: "a used directory slot has a non-zero type byte",
-		Citation:    "samdos/src/c.s:1133-1143",
-		Check:       checkDirErasedIsZero,
+		ID:            "DIR-ERASED-IS-ZERO",
+		Severity:      SeverityInconsistency,
+		Description:   "a used directory slot has a non-zero type byte",
+		Citation:      "samdos/src/c.s:1133-1143",
+		Check:         checkDirErasedIsZero,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -116,11 +118,12 @@ func checkDirErasedIsZero(ctx *CheckContext) []Finding {
 // ----- DIR-NAME-PADDING -----
 func init() {
 	Register(Rule{
-		ID:          "DIR-NAME-PADDING",
-		Severity:    SeverityCosmetic,
-		Description: "filename bytes are printable ASCII or space-padded",
-		Citation:    "sam-coupe_tech-man_v3-0.txt:4358-4359",
-		Check:       checkDirNamePadding,
+		ID:            "DIR-NAME-PADDING",
+		Severity:      SeverityCosmetic,
+		Description:   "filename bytes are printable ASCII or space-padded",
+		Citation:      "sam-coupe_tech-man_v3-0.txt:4358-4359",
+		Check:         checkDirNamePadding,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -147,11 +150,12 @@ func checkDirNamePadding(ctx *CheckContext) []Finding {
 // ----- DIR-NAME-NOT-EMPTY -----
 func init() {
 	Register(Rule{
-		ID:          "DIR-NAME-NOT-EMPTY",
-		Severity:    SeverityInconsistency,
-		Description: "a used slot has at least one non-space, non-FF character in its 10-byte name",
-		Citation:    "rom-disasm:22093-22105",
-		Check:       checkDirNameNotEmpty,
+		ID:            "DIR-NAME-NOT-EMPTY",
+		Severity:      SeverityInconsistency,
+		Description:   "a used slot has at least one non-space, non-FF character in its 10-byte name",
+		Citation:      "rom-disasm:22093-22105",
+		Check:         checkDirNameNotEmpty,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -181,11 +185,12 @@ func checkDirNameNotEmpty(ctx *CheckContext) []Finding {
 // ----- DIR-FIRST-SECTOR-VALID -----
 func init() {
 	Register(Rule{
-		ID:          "DIR-FIRST-SECTOR-VALID",
-		Severity:    SeverityFatal,
-		Description: "directory entry's FirstSector points at a valid data sector",
-		Citation:    "samfile.go:611-616",
-		Check:       checkDirFirstSectorValid,
+		ID:            "DIR-FIRST-SECTOR-VALID",
+		Severity:      SeverityFatal,
+		Description:   "directory entry's FirstSector points at a valid data sector",
+		Citation:      "samfile.go:611-616",
+		Check:         checkDirFirstSectorValid,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -217,11 +222,12 @@ func checkDirFirstSectorValid(ctx *CheckContext) []Finding {
 // ----- DIR-SECTORS-MATCHES-CHAIN -----
 func init() {
 	Register(Rule{
-		ID:          "DIR-SECTORS-MATCHES-CHAIN",
-		Severity:    SeverityStructural,
-		Description: "dir-entry Sectors count equals the number of sectors visited walking the chain to the (0,0) terminator",
-		Citation:    "samfile.go:743-754",
-		Check:       checkDirSectorsMatchesChain,
+		ID:            "DIR-SECTORS-MATCHES-CHAIN",
+		Severity:      SeverityStructural,
+		Description:   "dir-entry Sectors count equals the number of sectors visited walking the chain to the (0,0) terminator",
+		Citation:      "samfile.go:743-754",
+		Check:         checkDirSectorsMatchesChain,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -246,11 +252,12 @@ func checkDirSectorsMatchesChain(ctx *CheckContext) []Finding {
 // ----- DIR-SECTORS-MATCHES-MAP -----
 func init() {
 	Register(Rule{
-		ID:          "DIR-SECTORS-MATCHES-MAP",
-		Severity:    SeverityStructural,
-		Description: "dir-entry Sectors count equals the popcount of the per-slot SectorAddressMap",
-		Citation:    "sam-coupe_tech-man_v3-0.txt:4405-4414",
-		Check:       checkDirSectorsMatchesMap,
+		ID:            "DIR-SECTORS-MATCHES-MAP",
+		Severity:      SeverityStructural,
+		Description:   "dir-entry Sectors count equals the popcount of the per-slot SectorAddressMap",
+		Citation:      "sam-coupe_tech-man_v3-0.txt:4405-4414",
+		Check:         checkDirSectorsMatchesMap,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -277,11 +284,12 @@ func checkDirSectorsMatchesMap(ctx *CheckContext) []Finding {
 // ----- DIR-SECTORS-NONZERO -----
 func init() {
 	Register(Rule{
-		ID:          "DIR-SECTORS-NONZERO",
-		Severity:    SeverityStructural,
-		Description: "a used dir entry's Sectors count is at least 1",
-		Citation:    "samdos/src/c.s:919-951",
-		Check:       checkDirSectorsNonzero,
+		ID:            "DIR-SECTORS-NONZERO",
+		Severity:      SeverityStructural,
+		Description:   "a used dir entry's Sectors count is at least 1",
+		Citation:      "samdos/src/c.s:919-951",
+		Check:         checkDirSectorsNonzero,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 
@@ -307,11 +315,12 @@ func checkDirSectorsNonzero(ctx *CheckContext) []Finding {
 // (top 3 bits of byte 194), per Tech Manual L4405-4406.
 func init() {
 	Register(Rule{
-		ID:          "DIR-SAM-WITHIN-CAPACITY",
-		Severity:    SeverityInconsistency,
-		Description: "SectorAddressMap byte 194's top 3 bits (1557-1559) are clear (no sector beyond disk capacity)",
-		Citation:    "sam-coupe_tech-man_v3-0.txt:4405-4406",
-		Check:       checkDirSAMWithinCapacity,
+		ID:            "DIR-SAM-WITHIN-CAPACITY",
+		Severity:      SeverityInconsistency,
+		Description:   "SectorAddressMap byte 194's top 3 bits (1557-1559) are clear (no sector beyond disk capacity)",
+		Citation:      "sam-coupe_tech-man_v3-0.txt:4405-4406",
+		Check:         checkDirSAMWithinCapacity,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 

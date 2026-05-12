@@ -12,11 +12,12 @@ package samfile
 // writer didn't populate the array metadata at SAVE time.
 func init() {
 	Register(Rule{
-		ID:          "ARRAY-FILETYPEINFO-TLBYTE-NAME",
-		Severity:    SeverityStructural,
-		Description: "FT_NUM_ARRAY/FT_STR_ARRAY FileTypeInfo (dir 0xDD-0xE7) is not all zero",
-		Citation:    "rom-disasm:22354-22357",
-		Check:       checkArrayFileTypeInfoTLBYTEName,
+		ID:            "ARRAY-FILETYPEINFO-TLBYTE-NAME",
+		Severity:      SeverityStructural,
+		Description:   "FT_NUM_ARRAY/FT_STR_ARRAY FileTypeInfo (dir 0xDD-0xE7) is not all zero",
+		Citation:      "rom-disasm:22354-22357",
+		Check:         checkArrayFileTypeInfoTLBYTEName,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_NUM_ARRAY, FT_STR_ARRAY)},
 	})
 }
 

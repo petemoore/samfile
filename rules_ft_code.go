@@ -12,11 +12,12 @@ import "fmt"
 // ----- CODE-LOAD-ABOVE-ROM -----
 func init() {
 	Register(Rule{
-		ID:          "CODE-LOAD-ABOVE-ROM",
-		Severity:    SeverityFatal,
-		Description: "FT_CODE file's load address is at least 0x4000 (above ROM)",
-		Citation:    "samfile.go:799-801",
-		Check:       checkCodeLoadAboveROM,
+		ID:            "CODE-LOAD-ABOVE-ROM",
+		Severity:      SeverityFatal,
+		Description:   "FT_CODE file's load address is at least 0x4000 (above ROM)",
+		Citation:      "samfile.go:799-801",
+		Check:         checkCodeLoadAboveROM,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_CODE)},
 	})
 }
 
@@ -43,11 +44,12 @@ func checkCodeLoadAboveROM(ctx *CheckContext) []Finding {
 // ----- CODE-LOAD-FITS-IN-MEMORY -----
 func init() {
 	Register(Rule{
-		ID:          "CODE-LOAD-FITS-IN-MEMORY",
-		Severity:    SeverityFatal,
-		Description: "FT_CODE file's load address + body length does not exceed SAM's 512 KiB address space",
-		Citation:    "samfile.go:802-804",
-		Check:       checkCodeLoadFitsInMemory,
+		ID:            "CODE-LOAD-FITS-IN-MEMORY",
+		Severity:      SeverityFatal,
+		Description:   "FT_CODE file's load address + body length does not exceed SAM's 512 KiB address space",
+		Citation:      "samfile.go:802-804",
+		Check:         checkCodeLoadFitsInMemory,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_CODE)},
 	})
 }
 
@@ -76,11 +78,12 @@ func checkCodeLoadFitsInMemory(ctx *CheckContext) []Finding {
 // ----- CODE-EXEC-WITHIN-LOADED-RANGE -----
 func init() {
 	Register(Rule{
-		ID:          "CODE-EXEC-WITHIN-LOADED-RANGE",
-		Severity:    SeverityStructural,
-		Description: "FT_CODE file's execution address (when not 0xFF-disabled) lies within its loaded region",
-		Citation:    "samfile.go:805-810",
-		Check:       checkCodeExecWithinLoadedRange,
+		ID:            "CODE-EXEC-WITHIN-LOADED-RANGE",
+		Severity:      SeverityStructural,
+		Description:   "FT_CODE file's execution address (when not 0xFF-disabled) lies within its loaded region",
+		Citation:      "samfile.go:805-810",
+		Check:         checkCodeExecWithinLoadedRange,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_CODE)},
 	})
 }
 
@@ -135,11 +138,12 @@ func checkCodeExecWithinLoadedRange(ctx *CheckContext) []Finding {
 // overwrite.
 func init() {
 	Register(Rule{
-		ID:          "CODE-FILETYPEINFO-EMPTY",
-		Severity:    SeverityCosmetic,
-		Description: "FT_CODE file's FileTypeInfo (dir 0xDD-0xE7) is uniformly 0x00 (samfile), 0xFF (ROM SAMDOS-2), or 0x20 (HDR space-fill leakage) — unused-marker convention",
-		Citation:    "samfile.go:798-827",
-		Check:       checkCodeFileTypeInfoEmpty,
+		ID:            "CODE-FILETYPEINFO-EMPTY",
+		Severity:      SeverityCosmetic,
+		Description:   "FT_CODE file's FileTypeInfo (dir 0xDD-0xE7) is uniformly 0x00 (samfile), 0xFF (ROM SAMDOS-2), or 0x20 (HDR space-fill leakage) — unused-marker convention",
+		Citation:      "samfile.go:798-827",
+		Check:         checkCodeFileTypeInfoEmpty,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_CODE)},
 	})
 }
 

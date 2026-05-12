@@ -55,11 +55,12 @@ func bodyData(di *DiskImage, fe *FileEntry) ([]byte, error) {
 // NVARS <= NUMEND <= SAVARS <= body Length.
 func init() {
 	Register(Rule{
-		ID:          "BASIC-FILETYPEINFO-TRIPLETS",
-		Severity:    SeverityStructural,
-		Description: "FT_SAM_BASIC FileTypeInfo (dir 0xDD-0xE5) holds three non-zero, non-decreasing PAGEFORM cumulative offsets bounded by body length",
-		Citation:    "rom-disasm:22163-22180",
-		Check:       checkBasicFileTypeInfoTriplets,
+		ID:            "BASIC-FILETYPEINFO-TRIPLETS",
+		Severity:      SeverityStructural,
+		Description:   "FT_SAM_BASIC FileTypeInfo (dir 0xDD-0xE5) holds three non-zero, non-decreasing PAGEFORM cumulative offsets bounded by body length",
+		Citation:      "rom-disasm:22163-22180",
+		Check:         checkBasicFileTypeInfoTriplets,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SAM_BASIC)},
 	})
 }
 
@@ -101,11 +102,12 @@ func checkBasicFileTypeInfoTriplets(ctx *CheckContext) []Finding {
 // accept either value.
 func init() {
 	Register(Rule{
-		ID:          "BASIC-VARS-GAP-INVARIANT",
-		Severity:    SeverityCosmetic,
-		Description: "FT_SAM_BASIC SAVARS-NVARS equals the dialect-canonical value (604 SAMDOS-2 / 2156 MasterDOS)",
-		Citation:    "sam-basic-save-format.md",
-		Check:       checkBasicVarsGapInvariant,
+		ID:            "BASIC-VARS-GAP-INVARIANT",
+		Severity:      SeverityCosmetic,
+		Description:   "FT_SAM_BASIC SAVARS-NVARS equals the dialect-canonical value (604 SAMDOS-2 / 2156 MasterDOS)",
+		Citation:      "sam-basic-save-format.md",
+		Check:         checkBasicVarsGapInvariant,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SAM_BASIC)},
 	})
 }
 
@@ -147,11 +149,12 @@ func checkBasicVarsGapInvariant(ctx *CheckContext) []Finding {
 // end offset).
 func init() {
 	Register(Rule{
-		ID:          "BASIC-PROG-END-SENTINEL",
-		Severity:    SeverityStructural,
-		Description: "FT_SAM_BASIC program-area ends with a 0xFF sentinel byte",
-		Citation:    "sambasic/file.go:36-42",
-		Check:       checkBasicProgEndSentinel,
+		ID:            "BASIC-PROG-END-SENTINEL",
+		Severity:      SeverityStructural,
+		Description:   "FT_SAM_BASIC program-area ends with a 0xFF sentinel byte",
+		Citation:      "sambasic/file.go:36-42",
+		Check:         checkBasicProgEndSentinel,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SAM_BASIC)},
 	})
 }
 
@@ -200,11 +203,12 @@ func checkBasicProgEndSentinel(ctx *CheckContext) []Finding {
 // the type; only the `== 0` check remains as an explicit guard.
 func init() {
 	Register(Rule{
-		ID:          "BASIC-LINE-NUMBER-BE",
-		Severity:    SeverityStructural,
-		Description: "FT_SAM_BASIC program parses cleanly and every line number is in 1..65535 (uint16 BE; widened from 1..16383 in iteration 1)",
-		Citation:    "sambasic/parse.go",
-		Check:       checkBasicLineNumberBE,
+		ID:            "BASIC-LINE-NUMBER-BE",
+		Severity:      SeverityStructural,
+		Description:   "FT_SAM_BASIC program parses cleanly and every line number is in 1..65535 (uint16 BE; widened from 1..16383 in iteration 1)",
+		Citation:      "sambasic/parse.go",
+		Check:         checkBasicLineNumberBE,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SAM_BASIC)},
 	})
 }
 
@@ -256,11 +260,12 @@ func checkBasicLineNumberBE(ctx *CheckContext) []Finding {
 // a valid line number (1..16383, not 0xFFFF).
 func init() {
 	Register(Rule{
-		ID:          "BASIC-STARTLINE-FF-DISABLES",
-		Severity:    SeverityStructural,
-		Description: "FT_SAM_BASIC dir[0xF2] is 0x00 (auto-RUN) or 0xFF (no auto-RUN); when 0x00, the start-line is a valid line number",
-		Citation:    "rom-disasm:22136-22141",
-		Check:       checkBasicStartLineFFDisables,
+		ID:            "BASIC-STARTLINE-FF-DISABLES",
+		Severity:      SeverityStructural,
+		Description:   "FT_SAM_BASIC dir[0xF2] is 0x00 (auto-RUN) or 0xFF (no auto-RUN); when 0x00, the start-line is a valid line number",
+		Citation:      "rom-disasm:22136-22141",
+		Check:         checkBasicStartLineFFDisables,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SAM_BASIC)},
 	})
 }
 
@@ -321,11 +326,12 @@ func checkBasicStartLineFFDisables(ctx *CheckContext) []Finding {
 // Severity stays cosmetic.
 func init() {
 	Register(Rule{
-		ID:          "BASIC-STARTLINE-WITHIN-PROG",
-		Severity:    SeverityCosmetic,
-		Description: "FT_SAM_BASIC auto-RUN start-line is at or below the highest saved line (RUN's NEXT-LINE-GE lookup tolerates start-lines below the lowest saved line)",
-		Citation:    "rom-disasm:22136-22141",
-		Check:       checkBasicStartLineWithinProg,
+		ID:            "BASIC-STARTLINE-WITHIN-PROG",
+		Severity:      SeverityCosmetic,
+		Description:   "FT_SAM_BASIC auto-RUN start-line is at or below the highest saved line (RUN's NEXT-LINE-GE lookup tolerates start-lines below the lowest saved line)",
+		Citation:      "rom-disasm:22136-22141",
+		Check:         checkBasicStartLineWithinProg,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SAM_BASIC)},
 	})
 }
 
@@ -383,11 +389,12 @@ func checkBasicStartLineWithinProg(ctx *CheckContext) []Finding {
 // test-mgt-byte-layout.md §slot 1). Inconsistency severity.
 func init() {
 	Register(Rule{
-		ID:          "BASIC-MGTFLAGS-20",
-		Severity:    SeverityInconsistency,
-		Description: "FT_SAM_BASIC MGTFlags is 0x20 (empirical convention)",
-		Citation:    "test-mgt-byte-layout.md",
-		Check:       checkBasicMGTFlags20,
+		ID:            "BASIC-MGTFLAGS-20",
+		Severity:      SeverityInconsistency,
+		Description:   "FT_SAM_BASIC MGTFlags is 0x20 (empirical convention)",
+		Citation:      "test-mgt-byte-layout.md",
+		Check:         checkBasicMGTFlags20,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SAM_BASIC)},
 	})
 }
 

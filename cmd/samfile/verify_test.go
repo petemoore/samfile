@@ -171,7 +171,7 @@ func captureVerify(t *testing.T, imgPath string) (string, error) {
 	os.Stdout = w
 	defer func() { os.Stdout = old }()
 
-	err := runVerify(imgPath)
+	err := runVerify(imgPath, "text")
 
 	w.Close()
 	var buf bytes.Buffer

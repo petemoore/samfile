@@ -12,11 +12,12 @@ import "fmt"
 // (1-4 on SAM).
 func init() {
 	Register(Rule{
-		ID:          "SCREEN-MODE-AT-0xDD",
-		Severity:    SeverityStructural,
-		Description: "FT_SCREEN dir[0xDD] (mode byte) is in 1..4",
-		Citation:    "rom-disasm:22259",
-		Check:       checkScreenModeAt0xDD,
+		ID:            "SCREEN-MODE-AT-0xDD",
+		Severity:      SeverityStructural,
+		Description:   "FT_SCREEN dir[0xDD] (mode byte) is in 1..4",
+		Citation:      "rom-disasm:22259",
+		Check:         checkScreenModeAt0xDD,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SCREEN)},
 	})
 }
 
@@ -58,11 +59,12 @@ func checkScreenModeAt0xDD(ctx *CheckContext) []Finding {
 // dir byte but mode-3-sized body).
 func init() {
 	Register(Rule{
-		ID:          "SCREEN-LENGTH-MATCHES-MODE",
-		Severity:    SeverityStructural,
-		Description: "FT_SCREEN body length is within [min, min+512] for its mode (1-2: min=6912; 3-4: min=24576) — slack accommodates the ROM SCREEN$ SAVE palette+sysvars trailer",
-		Citation:    "sam-coupe_tech-man_v3-0.txt",
-		Check:       checkScreenLengthMatchesMode,
+		ID:            "SCREEN-LENGTH-MATCHES-MODE",
+		Severity:      SeverityStructural,
+		Description:   "FT_SCREEN body length is within [min, min+512] for its mode (1-2: min=6912; 3-4: min=24576) — slack accommodates the ROM SCREEN$ SAVE palette+sysvars trailer",
+		Citation:      "sam-coupe_tech-man_v3-0.txt",
+		Check:         checkScreenLengthMatchesMode,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SCREEN)},
 	})
 }
 

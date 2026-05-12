@@ -10,6 +10,12 @@ import "fmt"
 // the raw int.
 type Severity int
 
+// MarshalJSON renders Severity as its lowercase name (cosmetic /
+// inconsistency / structural / fatal) so JSONL output is readable.
+func (s Severity) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + s.String() + `"`), nil
+}
+
 const (
 	SeverityCosmetic Severity = iota
 	SeverityInconsistency
@@ -122,7 +128,36 @@ type Rule struct {
 	Dialects    []Dialect // dialects the rule applies to; nil/empty = all
 	Description string    // one-line summary, used in human output
 	Citation    string    // file:line of the strongest evidence
-	Check       func(ctx *CheckContext) []Finding
+
+	// Check is the rule body. Receives a CheckContext, returns the
+	// findings (failures) it detected. Iterates internally over its
+	// universe of subjects. This is the only required field.
+	Check func(ctx *CheckContext) []Finding
+
+	// Applicability declares the subject universe for the rule so
+	// the audit pipeline can compute denominators (pass/fail rates)
+	// and attribute snapshots. Optional — if nil, the rule's
+	// findings are still recorded as fail events, but pass events
+	// are not synthesized (no denominator available).
+	Applicability *RuleApplicability
+
+	// Scope / Applies / CheckSubject are reserved for future
+	// migration of rules to a fully per-subject signature. None of
+	// the currently-registered rules use these.
+	Scope        SubjectScope
+	Applies      func(ctx *CheckContext, subject Subject) bool
+	CheckSubject func(ctx *CheckContext, subject Subject) *Finding
+}
+
+// RuleApplicability declares the universe of subjects a rule
+// reasons about, so the framework can synthesize pass / n/a events
+// alongside the rule's own fail findings.
+type RuleApplicability struct {
+	Scope SubjectScope
+	// Filter selects which subjects of Scope are applicable. nil =
+	// every subject of the scope. For SlotScope filters typically
+	// gate on file type or used-vs-erased.
+	Filter func(*CheckContext, Subject) bool
 }
 
 // allRules is the package-private registry. Rules register at package
@@ -158,10 +193,16 @@ func Rules() []Rule {
 // another expensive derivation (e.g. a combined sector map), add
 // it as a field on CheckContext and memoise it in Verify.
 type CheckContext struct {
-	Disk    *DiskImage
-	Journal *DiskJournal
-	Dialect Dialect
+	Disk     *DiskImage
+	Journal  *DiskJournal
+	Dialect  Dialect
+	recorder *EventRecorder
 }
+
+// SetRecorder installs an EventRecorder that receives a CheckEvent
+// per (rule, applicable subject) pair during Verify. nil is fine —
+// the text-output path leaves the recorder unset.
+func (ctx *CheckContext) SetRecorder(r *EventRecorder) { ctx.recorder = r }
 
 // VerifyReport is the result of running Verify on a DiskImage.
 // Findings is the full ordered slice; the helper methods filter
@@ -270,20 +311,146 @@ func (r VerifyReport) Filter(opts FilterOpts) []Finding {
 // conservative: when it returns DialectUnknown (empty or ambiguous
 // disks), only all-dialects rules run.
 func (di *DiskImage) Verify() VerifyReport {
+	return di.verifyInternal(nil)
+}
+
+// VerifyWithRecorder runs verify and captures every Check event into
+// the provided recorder (in addition to producing the VerifyReport).
+// Use this from the JSONL CLI path.
+func (di *DiskImage) VerifyWithRecorder(rec *EventRecorder) VerifyReport {
+	return di.verifyInternal(rec)
+}
+
+func (di *DiskImage) verifyInternal(rec *EventRecorder) VerifyReport {
 	dialect := DetectDialect(di)
 	ctx := &CheckContext{
-		Disk:    di,
-		Journal: di.DiskJournal(),
-		Dialect: dialect,
+		Disk:     di,
+		Journal:  di.DiskJournal(),
+		Dialect:  dialect,
+		recorder: rec,
 	}
 	report := VerifyReport{Dialect: dialect}
 	for _, rule := range allRules {
 		if !ruleAppliesToDialect(rule, dialect) {
 			continue
 		}
-		report.Findings = append(report.Findings, rule.Check(ctx)...)
+		if rule.CheckSubject != nil {
+			subjects := ctx.subjectsForScope(rule.Scope)
+			for _, subj := range subjects {
+				applicable := rule.Applies == nil || rule.Applies(ctx, subj)
+				if !applicable {
+					rec.Record(CheckEvent{
+						RuleID: rule.ID, Scope: rule.Scope.String(),
+						Ref: subj.Ref(), Outcome: "not_applicable",
+						Attrs: subj.Attributes(),
+					})
+					continue
+				}
+				finding := rule.CheckSubject(ctx, subj)
+				outcome := "pass"
+				if finding != nil {
+					outcome = "fail"
+					report.Findings = append(report.Findings, *finding)
+				}
+				rec.Record(CheckEvent{
+					RuleID: rule.ID, Scope: rule.Scope.String(),
+					Ref: subj.Ref(), Outcome: outcome,
+					Attrs: subj.Attributes(), Finding: finding,
+				})
+			}
+			continue
+		}
+		// Run the rule's Check(); always collect its findings.
+		legacyFindings := rule.Check(ctx)
+		report.Findings = append(report.Findings, legacyFindings...)
+		if rec == nil {
+			continue
+		}
+		// Match findings to subjects so we can emit pass / n/a / fail
+		// events with attribute snapshots, if the rule declares
+		// Applicability metadata. Otherwise emit only fail events
+		// (no denominator available).
+		if rule.Applicability != nil {
+			ap := rule.Applicability
+			subjects := ctx.subjectsForScope(ap.Scope)
+			// Index findings by location.Slot (or -1 for disk-wide).
+			findingsBySlot := map[int][]Finding{}
+			for _, f := range legacyFindings {
+				findingsBySlot[f.Location.Slot] = append(findingsBySlot[f.Location.Slot], f)
+			}
+			for _, subj := range subjects {
+				if ap.Filter != nil && !ap.Filter(ctx, subj) {
+					rec.Record(CheckEvent{
+						RuleID: rule.ID, Scope: ap.Scope.String(),
+						Ref: subj.Ref(), Outcome: "not_applicable",
+						Attrs: subj.Attributes(),
+					})
+					continue
+				}
+				slot := slotFromSubject(subj)
+				if fs, ok := findingsBySlot[slot]; ok && len(fs) > 0 {
+					f := fs[0]
+					rec.Record(CheckEvent{
+						RuleID: rule.ID, Scope: ap.Scope.String(),
+						Ref: subj.Ref(), Outcome: "fail",
+						Attrs: subj.Attributes(), Finding: &f,
+					})
+				} else {
+					rec.Record(CheckEvent{
+						RuleID: rule.ID, Scope: ap.Scope.String(),
+						Ref: subj.Ref(), Outcome: "pass",
+						Attrs: subj.Attributes(),
+					})
+				}
+			}
+			continue
+		}
+		// No applicability metadata: emit fail-only events.
+		for i := range legacyFindings {
+			f := legacyFindings[i]
+			ref := "disk"
+			if f.Location.Slot >= 0 {
+				ref = fmt.Sprintf("slot=%d", f.Location.Slot)
+			}
+			rec.Record(CheckEvent{
+				RuleID: rule.ID, Scope: "legacy",
+				Ref: ref, Outcome: "fail", Finding: &f,
+			})
+		}
 	}
 	return report
+}
+
+// slotFromSubject returns the slot index this Subject refers to,
+// or -1 for disk-scope. Used to match legacy Check findings (which
+// carry Location.Slot) against the subject universe.
+func slotFromSubject(s Subject) int {
+	switch v := s.(type) {
+	case *SlotSubject:
+		return v.SlotIndex
+	default:
+		return -1
+	}
+}
+
+// subjectsForScope enumerates every Subject of the given scope on
+// the current disk. DiskScope yields one DiskSubject; SlotScope
+// yields 80 SlotSubjects (every dir entry, used or erased).
+// ChainStepScope is not yet implemented — rules that need per-step
+// iteration should declare SlotScope and walk the chain internally.
+func (ctx *CheckContext) subjectsForScope(scope SubjectScope) []Subject {
+	switch scope {
+	case DiskScope:
+		return []Subject{&DiskSubject{Journal: ctx.Journal, Disk: ctx.Disk, Dialect: ctx.Dialect}}
+	case SlotScope:
+		out := make([]Subject, 0, 80)
+		for i := 0; i < 80; i++ {
+			fe := (*ctx.Journal)[i]
+			out = append(out, &SlotSubject{SlotIndex: i, FileEntry: fe, Disk: ctx.Disk, Journal: ctx.Journal})
+		}
+		return out
+	}
+	return nil
 }
 
 // ruleAppliesToDialect reports whether rule should run when the

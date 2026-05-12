@@ -11,7 +11,7 @@ Manipulate files in SAM Coupé floppy disk images.
     samfile cat -i IMAGE -f FILE
     samfile extract -i IMAGE [-t TARGET]
     samfile ls -i IMAGE
-    samfile verify -i IMAGE
+    samfile verify -i IMAGE [--format FORMAT]
     samfile --help
     samfile --version
 
@@ -41,6 +41,9 @@ Manipulate files in SAM Coupé floppy disk images.
     -c                    File is a code file.
     -l LOAD_ADDRESS       Load address of code file on the SAM Disk image.
     -e EXECUTION_ADDRESS  Execution address of code file on the SAM Disk image.
+    --format FORMAT       Output format for verify: "text" (default,
+                          human readable) or "jsonl" (one JSON Check
+                          event per line; for audit pipelines).
     --help                Display this help text.
     --version             Display the release version of samfile.
 

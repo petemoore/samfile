@@ -20,11 +20,12 @@ import "fmt"
 // real-ROM-SAVE byte == 0xFF, samfile byte == 0x00, both legitimate.
 func init() {
 	Register(Rule{
-		ID:          "COSMETIC-RESERVEDA-FF",
-		Severity:    SeverityCosmetic,
-		Description: "ReservedA (dir 0xE8-0xEB) is uniformly 0x00 (samfile) or 0xFF (ROM SAMDOS-2)",
-		Citation:    "rom-disasm:22076-22080",
-		Check:       checkCosmeticReservedAFF,
+		ID:            "COSMETIC-RESERVEDA-FF",
+		Severity:      SeverityCosmetic,
+		Description:   "ReservedA (dir 0xE8-0xEB) is uniformly 0x00 (samfile) or 0xFF (ROM SAMDOS-2)",
+		Citation:      "rom-disasm:22076-22080",
+		Check:         checkCosmeticReservedAFF,
+		Applicability: &RuleApplicability{Scope: SlotScope, Filter: usedSlot},
 	})
 }
 

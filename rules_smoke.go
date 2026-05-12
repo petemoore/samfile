@@ -10,12 +10,13 @@ import "fmt"
 // but technically valid SAM-format output.
 func init() {
 	Register(Rule{
-		ID:          "DISK-NOT-EMPTY",
-		Severity:    SeverityInconsistency,
-		Dialects:    nil, // all dialects
-		Description: "disk has at least one occupied directory entry",
-		Citation:    "docs/disk-validity-rules.md",
-		Check:       checkDiskNotEmpty,
+		ID:            "DISK-NOT-EMPTY",
+		Severity:      SeverityInconsistency,
+		Dialects:      nil, // all dialects
+		Description:   "disk has at least one occupied directory entry",
+		Citation:      "docs/disk-validity-rules.md",
+		Check:         checkDiskNotEmpty,
+		Applicability: &RuleApplicability{Scope: DiskScope},
 	})
 }
 

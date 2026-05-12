@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/petemoore/samfile/v3"
@@ -23,10 +26,23 @@ import (
 // (image-path in, error out); Task 10 wires it into the dispatcher
 // by extracting arguments["-i"].(string) and calling log.Fatal on
 // a non-nil return.
-func runVerify(imagePath string) error {
+func runVerify(imagePath string, format string) error {
 	di, err := samfile.Load(imagePath)
 	if err != nil {
 		return fmt.Errorf("verify: %w", err)
+	}
+
+	if format == "jsonl" {
+		base := strings.TrimSuffix(filepath.Base(imagePath), filepath.Ext(imagePath))
+		rec := &samfile.EventRecorder{Disk: base}
+		_ = di.VerifyWithRecorder(rec)
+		enc := json.NewEncoder(os.Stdout)
+		for _, ev := range rec.Events {
+			if err := enc.Encode(ev); err != nil {
+				return fmt.Errorf("verify: %w", err)
+			}
+		}
+		return nil
 	}
 
 	report := di.Verify()
