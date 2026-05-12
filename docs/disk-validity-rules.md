@@ -768,32 +768,51 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 ### BODY-EXEC-DIV16K-MATCHES-DIR — Body byte 5 == dir byte 0xF2
 
 - What: Body byte 5 (`ExecutionAddressDiv16K`) mirrors dir byte
-  0xF2. The ROM auto-exec gate (rom-disasm:22467-22484) checks BOTH
-  for `0xFF` before deciding to auto-execute, so the two must agree
-  to avoid surprises.
-- Severity: structural (mismatch can cause unwanted auto-exec)
-- Source authority: ROM
-- Citation: ROM disasm L22471-22484 (see §0 above).
+  0xF2 for FT_CODE files (both encode the auto-exec page-form
+  Div16K). Prior catalog wording claimed the "ROM auto-exec gate
+  checks both for `0xFF` before deciding to auto-execute" — this
+  was wrong, see Severity below.
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from the dir entry via gtfle/hconr/txhed — see
+  BODY-MIRROR-AT-DIR-D3-DB §5 for the citation chain. Body[5]
+  never enters ROM's view on LOAD; a mismatch has zero load-time
+  consequence. Aligns with the rest of the body-mirror cluster.)
+- Source authority: ROM + SAMDOS-code
+- Citation: ROM disasm L22471-22484 (the auto-exec gate reads
+  HDL+HDN+6 which is dir-fed); SAMDOS `samdos/src/f.s:494-497`
+  (`ldhd` reads body bytes 0..8 via `lbyt` and discards them).
 - Dialect: all
-- Suppressed by: PROTECTED files take a different path
-  (rom-disasm:22467-22469: `BIT 1,A; JR NZ,HDNSTP`); the requested
-  exec is then skipped and only the LOADED path is honoured.
-- Test sketch: `body[5] == dir[0xF2]`.
+- Iteration 2 DEMOTE: corpus iter-2 (2026-05-12) showed 1897 fires
+  across 164 disks, 727 of them the `body=0x00, dir=0xFF` pattern.
+  Per the source chain the body byte never reaches ROM, so the
+  "could cause unwanted auto-exec" framing was incorrect. Severity
+  dropped from structural to cosmetic to match the body-mirror
+  cluster's load-time-irrelevant classification.
+- Test sketch: `body[5] == dir[0xF2]` (only for FT_CODE; skip when
+  body[5]==0xFF — the canonical "defer to dir" pattern).
 
 ### BODY-EXEC-MOD16K-LO-MATCHES-DIR — Body byte 6 == dir byte 0xF3
 
 - What: Body byte 6 holds only the low byte of
   `ExecutionAddressMod16K`. It mirrors dir byte 0xF3. The high byte
   (dir 0xF4) has no body-header counterpart.
-- Severity: inconsistency
-- Source authority: ROM + samfile-implicit
+- Severity: cosmetic (body mirror is save-time-only; same chain as
+  BODY-EXEC-DIV16K-MATCHES-DIR — body[6] is read-and-discarded by
+  ldhd, never feeds ROM HDL/HDR).
+- Source authority: ROM + samfile-implicit + SAMDOS-code
 - Citation: ROM disasm L22472: `LD HL,(HDR+HDN+7)` — 16-bit LE pair
   starting at HDR offset 38 (= byte after HDR+HDN+6 = byte 37). The
   body header's byte 6 maps to HDL's `HDR+HDN+7` low byte via
-  SAMDOS `dschd` (`h.s:74-90`). samfile models this via
+  SAMDOS `dschd` (`h.s:74-90`), but the runtime feed is dir-side
+  (gtfle/hconr/txhed). samfile models this via
   `FileHeader.ExecutionAddressMod16KLo` (samfile.go:194).
 - Dialect: all
-- Test sketch: `body[6] == (dir[0xF3] & 0xFF)`.
+- Iteration 2 DEMOTE: corpus iter-2 (2026-05-12) showed 1873 fires
+  across 164 disks (parallels BODY-EXEC-DIV16K-MATCHES-DIR).
+  Severity dropped from inconsistency to cosmetic per the same
+  body-mirror cluster reasoning.
+- Test sketch: `body[6] == (dir[0xF3] & 0xFF)` (only for FT_CODE;
+  skip when body[5]==0xFF).
 
 ### BODY-PAGES-MATCHES-DIR — Body byte 7 == dir byte 0xEF
 

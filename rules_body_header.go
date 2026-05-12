@@ -103,17 +103,27 @@ func checkBodyTypeMatchesDir(ctx *CheckContext) []Finding {
 // gate at rom-disasm:22471-22484, auto-exec is disabled at the body
 // level when body[5] is 0xFF — bytes 5-6 are the canonical
 // "defer to dir" pattern ROM SAVE writes (catalog
-// §BODY-BYTES-5-6-CANONICAL-FF). Whatever dir says in that case is
-// authoritative and not a mismatch. The real-inconsistency cases
-// (`body=N (non-FF), dir=M (FF or different N)`) still fire, e.g.
-// the 727 `body=0x00, dir=0xFF` corpus fires where the body would
-// auto-exec from page 0 even though dir disables auto-exec.
+// §BODY-BYTES-5-6-CANONICAL-FF).
+//
+// Iteration 2 DEMOTE: structural → cosmetic. The body-mirror cluster
+// (BODY-MIRROR-AT-DIR-D3-DB and friends, commit 2b8aa1a) was
+// demoted to cosmetic after the SAMDOS source-chain analysis
+// (samdos/src/f.s:494-497 ldhd → c.s:557-570 lbyt → h.s:336-361
+// hconr → h.s:38-56 txhed) proved that body bytes 0..8 are read-
+// and-discarded on LOAD; the auto-exec gate reads HDL+HDN+6 which
+// is dir-derived (gtfle fills hd001.. from dir 0xD3-0xDB; hconr
+// reloads from uifa+* which is dir-side). Body[5] never enters
+// ROM's view. The "mismatch can cause unwanted auto-exec" framing
+// in the earlier catalog text was wrong; this rule should match
+// the rest of the body-mirror cluster. Corpus iter-2: 1897 fires
+// across 164 disks, 727 of which are the `body=0x00, dir=0xFF`
+// pattern — load-time consequence: none.
 func init() {
 	Register(Rule{
 		ID:            "BODY-EXEC-DIV16K-MATCHES-DIR",
-		Severity:      SeverityStructural,
-		Description:   "FT_CODE body-header ExecutionAddressDiv16K (byte 5) equals dir-entry ExecutionAddressDiv16K (skipped when body[5]==0xFF — the canonical 'defer to dir' pattern)",
-		Citation:      "rom-disasm:22471-22484",
+		Severity:      SeverityCosmetic,
+		Description:   "FT_CODE body-header ExecutionAddressDiv16K (byte 5) equals dir-entry ExecutionAddressDiv16K (cosmetic: body bytes 0..8 are unused on LOAD; mismatch has zero load-time consequence)",
+		Citation:      "rom-disasm:22471-22484; samdos/src/f.s:494-497",
 		Check:         checkBodyExecDiv16KMatchesDir,
 		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_CODE)},
 	})
@@ -136,7 +146,7 @@ func checkBodyExecDiv16KMatchesDir(ctx *CheckContext) []Finding {
 			return
 		}
 		findings = append(findings, bodyDirMirrorFinding(
-			"BODY-EXEC-DIV16K-MATCHES-DIR", SeverityStructural, "rom-disasm:22471-22484", "ExecutionAddressDiv16K",
+			"BODY-EXEC-DIV16K-MATCHES-DIR", SeverityCosmetic, "rom-disasm:22471-22484", "ExecutionAddressDiv16K",
 			slot, fe.Name.String(),
 			fe.ExecutionAddressDiv16K, hdr[5],
 		)...)
@@ -154,14 +164,20 @@ func checkBodyExecDiv16KMatchesDir(ctx *CheckContext) []Finding {
 // disabled at the body level (body[5]==0xFF — the canonical
 // "defer to dir" pattern per BODY-EXEC-DIV16K-MATCHES-DIR), the
 // body's byte 6 (lo of mod16K) is meaningless and any value is
-// allowed. Only fire the comparison when the body genuinely encodes
-// an exec address.
+// allowed.
+//
+// Iteration 2 DEMOTE: inconsistency → cosmetic. Same SAMDOS source-
+// chain analysis as BODY-EXEC-DIV16K-MATCHES-DIR (samdos/src/f.s:
+// 494-497 ldhd reads body bytes 0..8 via lbyt and discards them;
+// hconr/txhed feed ROM HDL/HDR from the dir entry). Body[6] never
+// enters ROM's view. Corpus iter-2: 1873 fires across 164 disks
+// (parallels the div16k pair). Load-time consequence: none.
 func init() {
 	Register(Rule{
 		ID:            "BODY-EXEC-MOD16K-LO-MATCHES-DIR",
-		Severity:      SeverityInconsistency,
-		Description:   "FT_CODE body-header ExecutionAddressMod16KLo (byte 6) equals low byte of dir-entry ExecutionAddressMod16K (skipped when body[5]==0xFF — body byte 6 is meaningless under the 'defer to dir' pattern)",
-		Citation:      "rom-disasm:22472",
+		Severity:      SeverityCosmetic,
+		Description:   "FT_CODE body-header ExecutionAddressMod16KLo (byte 6) equals low byte of dir-entry ExecutionAddressMod16K (cosmetic: body bytes 0..8 are unused on LOAD; mismatch has zero load-time consequence)",
+		Citation:      "rom-disasm:22472; samdos/src/f.s:494-497",
 		Check:         checkBodyExecMod16KLoMatchesDir,
 		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_CODE)},
 	})
@@ -184,7 +200,7 @@ func checkBodyExecMod16KLoMatchesDir(ctx *CheckContext) []Finding {
 			return
 		}
 		findings = append(findings, bodyDirMirrorFinding(
-			"BODY-EXEC-MOD16K-LO-MATCHES-DIR", SeverityInconsistency, "rom-disasm:22472", "ExecutionAddressMod16KLo",
+			"BODY-EXEC-MOD16K-LO-MATCHES-DIR", SeverityCosmetic, "rom-disasm:22472", "ExecutionAddressMod16KLo",
 			slot, fe.Name.String(),
 			uint8(fe.ExecutionAddressMod16K&0xFF), hdr[6],
 		)...)
