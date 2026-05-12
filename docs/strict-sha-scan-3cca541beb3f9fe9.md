@@ -19,7 +19,7 @@ either:
 ## Summary
 
 - **Cohort size:** 30 disks
-- **Total events emitted:** 97550
+- **Total events emitted:** 101070
 - **Rules with at least one fire (fail):** 13
 
 ## Disks in cohort
@@ -303,45 +303,68 @@ Source citation: `samdos/src/f.s:462-471`
 
 _(1523 not-applicable events for this rule on this cohort)_
 
-### `BASIC-VARS-GAP-INVARIANT` — 43/216 fails (19.9%), severity `cosmetic`
+### `BASIC-LINE-NUMBER-BE` — 25/216 fails (11.6%), severity `structural`
+
+Source citation: `sambasic/parse.go`
+
+**Distinct failure messages:**
+
+- `BASIC line number 0 out of range (1..65535)`
+- `BASIC program parse failed: parse: line 48059 body extends past input`
+- `BASIC program parse failed: parse: truncated numeric form at offset 241`
+- `BASIC program parse failed: parse: truncated numeric form at offset 358`
+- `BASIC program parse failed: parse: truncated numeric form at offset 389`
+
+**Every fire (disk, slot/ref, filename, message):**
+
+| Disk | Ref | Filename | Message |
+|---|---|---|---|
+| `FRED Magazine Issue 13 (1991)` | `slot=43` | `LETTER` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 13 (1991)` | `slot=44` | `FRED13` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 13 (1991)` | `slot=46` | `GAUNTLET 2` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 13 (1991)` | `slot=52` | `HEADER` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 13 (1991) _a1_` | `slot=43` | `LETTER` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 13 (1991) _a1_` | `slot=44` | `FRED13` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 13 (1991) _a1_` | `slot=46` | `GAUNTLET 2` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 13 (1991) _a1_` | `slot=52` | `HEADER` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=2` | `TRILTEX` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=24` | `FONTS` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=27` | `SPEC128` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=34` | `LETTERS` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=4` | `AUTOFRED14` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=43` | `fred14` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=49` | `SCREENS` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=55` | `freview14` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=61` | `m/c pt9` | BASIC line number 0 out of range (1..65535) |
+| `FRED Magazine Issue 14 (1991)` | `slot=64` | `FREVIEW` | BASIC line number 0 out of range (1..65535) |
+| `Fredatives 3 (1992)` | `slot=5` | `Intro` | BASIC program parse failed: parse: truncated numeric form at offset 389 |
+| `SamCo Birthday Demos for 512K by Chris White (1991) (PD)` | `slot=17` | `IMP_LOAD` | BASIC line number 0 out of range (1..65535) |
+| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=1` | `COS_LOAD` | BASIC program parse failed: parse: truncated numeric form at offset 241 |
+| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=15` | `H` | BASIC line number 0 out of range (1..65535) |
+| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=3` | `COSMOS1` | BASIC program parse failed: parse: truncated numeric form at offset 358 |
+| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=4` | `COSMISSONE` | BASIC program parse failed: parse: line 48059 body extends past input |
+| `Surprise Demo from SAMCO News Disk 1 (1992) (PD)` | `slot=1` | `AUTOSURP` | BASIC line number 0 out of range (1..65535) |
+
+_(2184 not-applicable events for this rule on this cohort)_
+
+### `BASIC-VARS-GAP-INVARIANT` — 23/216 fails (10.6%), severity `cosmetic`
 
 Source citation: `sam-basic-save-format.md`
 
 **Distinct failure messages:**
 
 - `BASIC SAVARS-NVARS = 1628; expected 604 for dialect samdos2`
-- `BASIC SAVARS-NVARS = 2140; expected 604 for dialect unknown`
+- `BASIC SAVARS-NVARS = 2140; expected 604 for dialect samdos2`
 - `BASIC SAVARS-NVARS = 2156; expected 604 for dialect samdos2`
-- `BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos`
 - `BASIC SAVARS-NVARS = 606; expected 604 for dialect samdos2`
 
 **Every fire (disk, slot/ref, filename, message):**
 
 | Disk | Ref | Filename | Message |
 |---|---|---|---|
-| `FRED Magazine Issue 13 (1991)` | `slot=49` | `ZEB GREEN` | BASIC SAVARS-NVARS = 2140; expected 604 for dialect unknown |
-| `FRED Magazine Issue 13 (1991) _a1_` | `slot=49` | `ZEB GREEN` | BASIC SAVARS-NVARS = 2140; expected 604 for dialect unknown |
-| `Fredatives 3 (1992)` | `slot=10` | `IDOS Setup` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=11` | `Iconcat` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=13` | `Wallow 1.0` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=14` | `Wallow 2.4` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=15` | `SoundProcs` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=2` | `AUTO Hippo` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=26` | `Multifont` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=4` | `Startup` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=55` | `Play Some` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=56` | `Kaboom` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=57` | `Kaboom.Bas` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=67` | `New Errors` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=68` | `Fun Errors` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=69` | `BBC Errors` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=70` | `Starstruck` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=71` | `Credits` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=72` | `CreditDemo` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=74` | `TVPP` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=76` | `New Bordow` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=77` | `Play Rasp` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
-| `Fredatives 3 (1992)` | `slot=79` | `Clear All` | BASIC SAVARS-NVARS = 604; expected 2156 for dialect masterdos |
+| `FRED Magazine Issue 13 (1991)` | `slot=49` | `ZEB GREEN` | BASIC SAVARS-NVARS = 2140; expected 604 for dialect samdos2 |
+| `FRED Magazine Issue 13 (1991) _a1_` | `slot=49` | `ZEB GREEN` | BASIC SAVARS-NVARS = 2140; expected 604 for dialect samdos2 |
+| `Fredatives 3 (1992)` | `slot=5` | `Intro` | BASIC SAVARS-NVARS = 2156; expected 604 for dialect samdos2 |
 | `MasterBASIC V1.7 (1994) (Betasoft)` | `slot=10` | `sval` | BASIC SAVARS-NVARS = 606; expected 604 for dialect samdos2 |
 | `MasterBASIC V1.7 (1994) (Betasoft)` | `slot=11` | `soundFX` | BASIC SAVARS-NVARS = 606; expected 604 for dialect samdos2 |
 | `MasterBASIC V1.7 (1994) (Betasoft)` | `slot=12` | `sound1` | BASIC SAVARS-NVARS = 606; expected 604 for dialect samdos2 |
@@ -459,47 +482,6 @@ Source citation: `samdos/src/c.s:1376-1379`
 
 _(1523 not-applicable events for this rule on this cohort)_
 
-### `BASIC-LINE-NUMBER-BE` — 6/86 fails (7.0%), severity `structural`
-
-Source citation: `sambasic/parse.go`
-
-**Distinct failure messages:**
-
-- `BASIC line number 0 out of range (1..65535)`
-- `BASIC program parse failed: parse: line 48059 body extends past input`
-- `BASIC program parse failed: parse: truncated numeric form at offset 241`
-- `BASIC program parse failed: parse: truncated numeric form at offset 358`
-
-**Every fire (disk, slot/ref, filename, message):**
-
-| Disk | Ref | Filename | Message |
-|---|---|---|---|
-| `SamCo Birthday Demos for 512K by Chris White (1991) (PD)` | `slot=17` | `IMP_LOAD` | BASIC line number 0 out of range (1..65535) |
-| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=1` | `COS_LOAD` | BASIC program parse failed: parse: truncated numeric form at offset 241 |
-| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=15` | `H` | BASIC line number 0 out of range (1..65535) |
-| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=3` | `COSMOS1` | BASIC program parse failed: parse: truncated numeric form at offset 358 |
-| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=4` | `COSMISSONE` | BASIC program parse failed: parse: line 48059 body extends past input |
-| `Surprise Demo from SAMCO News Disk 1 (1992) (PD)` | `slot=1` | `AUTOSURP` | BASIC line number 0 out of range (1..65535) |
-
-_(1434 not-applicable events for this rule on this cohort)_
-
-### `BOOT-OWNER-AT-T4S1` — 4/30 fails (13.3%), severity `structural`
-
-Source citation: `rom-disasm:20473-20598`
-
-**Distinct failure messages:**
-
-- `no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware`
-
-**Every fire (disk, slot/ref, filename, message):**
-
-| Disk | Ref | Filename | Message |
-|---|---|---|---|
-| `FRED Magazine Issue 13 (1991)` | `disk` | `` | no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware |
-| `Sam Amateur Programming _ Electronics Issue 3 (Apr 1992)` | `disk` | `` | no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware |
-| `Sam Demo (19xx) (PD)` | `disk` | `` | no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware |
-| `Sam Demo Disk (1990) (Chris White)` | `disk` | `` | no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware |
-
 ### `DIR-NAME-PADDING` — 4/877 fails (0.5%), severity `cosmetic`
 
 Source citation: `sam-coupe_tech-man_v3-0.txt:4358-4359`
@@ -540,6 +522,23 @@ Source citation: `sam-coupe_tech-man_v3-0.txt`
 
 _(2300 not-applicable events for this rule on this cohort)_
 
+### `BOOT-OWNER-AT-T4S1` — 4/30 fails (13.3%), severity `structural`
+
+Source citation: `rom-disasm:20473-20598`
+
+**Distinct failure messages:**
+
+- `no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware`
+
+**Every fire (disk, slot/ref, filename, message):**
+
+| Disk | Ref | Filename | Message |
+|---|---|---|---|
+| `FRED Magazine Issue 13 (1991)` | `disk` | `` | no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware |
+| `Sam Amateur Programming _ Electronics Issue 3 (Apr 1992)` | `disk` | `` | no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware |
+| `Sam Demo (19xx) (PD)` | `disk` | `` | no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware |
+| `Sam Demo Disk (1990) (Chris White)` | `disk` | `` | no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware |
+
 ### `DIR-SAM-WITHIN-CAPACITY` — 3/877 fails (0.3%), severity `inconsistency`
 
 Source citation: `sam-coupe_tech-man_v3-0.txt:4405-4406`
@@ -574,6 +573,22 @@ Source citation: `docs/disk-validity-rules.md`
 | `Sam Demo (19xx) (PD)` | `disk` | `` | disk has 0 occupied directory entries (all 80 slots are free) |
 | `Sam Demo Disk (1990) (Chris White)` | `disk` | `` | disk has 0 occupied directory entries (all 80 slots are free) |
 
+### `BASIC-PROG-END-SENTINEL` — 1/216 fails (0.5%), severity `structural`
+
+Source citation: `sambasic/file.go:36-42`
+
+**Distinct failure messages:**
+
+- `BASIC program does not end with 0xFF sentinel; body[76693] = 0x00`
+
+**Every fire (disk, slot/ref, filename, message):**
+
+| Disk | Ref | Filename | Message |
+|---|---|---|---|
+| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=4` | `COSMISSONE` | BASIC program does not end with 0xFF sentinel; body[76693] = 0x00 |
+
+_(2184 not-applicable events for this rule on this cohort)_
+
 ### `CODE-LOAD-FITS-IN-MEMORY` — 1/393 fails (0.3%), severity `fatal`
 
 Source citation: `samfile.go:802-804`
@@ -589,22 +604,6 @@ Source citation: `samfile.go:802-804`
 | `FRED Magazine Issue 14 (1991)` | `slot=7` | `OPTION_TXT` | CODE load 0x7e000 + length 0x04000 = 0x82000 exceeds SAM's 512 KiB address space |
 
 _(2007 not-applicable events for this rule on this cohort)_
-
-### `BASIC-PROG-END-SENTINEL` — 1/86 fails (1.2%), severity `structural`
-
-Source citation: `sambasic/file.go:36-42`
-
-**Distinct failure messages:**
-
-- `BASIC program does not end with 0xFF sentinel; body[76693] = 0x00`
-
-**Every fire (disk, slot/ref, filename, message):**
-
-| Disk | Ref | Filename | Message |
-|---|---|---|---|
-| `SamCo Birthday Pack Games and Utils (1991) (Revelation)` | `slot=4` | `COSMISSONE` | BASIC program does not end with 0xFF sentinel; body[76693] = 0x00 |
-
-_(1434 not-applicable events for this rule on this cohort)_
 
 ## Rules that only passed (never fired)
 
