@@ -41,6 +41,15 @@ func checkDirTypeByteIsKnown(ctx *CheckContext) []Finding {
 	var findings []Finding
 	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
 		t := uint8(fe.Type) & 0x1F
+		// Iteration 1 FIX: type byte 0 is the erased-slot sentinel
+		// and is handled (with the structural severity it deserves)
+		// by DIR-ERASED-IS-ZERO. The catalog's test sketch explicitly
+		// lists 0 in the accepted set, so this rule should not also
+		// fire on it. Skipping here removes a 100% double-fire across
+		// 2,492 corpus findings.
+		if t == 0 {
+			return
+		}
 		if !dirKnownTypes[t] {
 			findings = append(findings, Finding{
 				RuleID:   "DIR-TYPE-BYTE-IS-KNOWN",
@@ -55,16 +64,33 @@ func checkDirTypeByteIsKnown(ctx *CheckContext) []Finding {
 }
 
 // ----- DIR-ERASED-IS-ZERO -----
-// Used() already encodes the rule but the catalog asks us to check the
-// inverse statement: any slot whose raw Type byte is exactly 0x00 but
-// whose other fields look populated (FirstSector non-zero) is suspicious.
-// Phase 3 implements only the forward check: a used slot must NOT have
-// Type == 0. (Empty Type 0 + Track 0 = legitimately free, which is the
-// common case.)
+// Iteration 2 DEMOTE + REWORD (structural → inconsistency). The rule
+// fires on slots where the type byte is 0 (so fdhf at c.s:1133-1143
+// treats it as free) but FirstSector.Track is non-zero (so name /
+// chain / SAM are still populated). That's the canonical
+// "DEL/ERASE leaves the file recoverable" archaeology: SAMDOS DEL
+// (and ROM ERASE) zero only the type byte, leaving the rest of the
+// dir entry intact. SAMDOS treats the slot as free per fdhf, so the
+// dir walk is well-defined — but the orphaned filename + chain
+// disagree with the type byte's "this slot is unused" claim. That's
+// "two views of the same fact disagree" → inconsistency, not
+// "disk-walk invariant violated" → structural.
+//
+// 43% of the corpus has at least one such slot. Keeping it at
+// structural drowns out genuine structural corruption (e.g.
+// CHAIN-NO-CYCLE, 3 disks).
+//
+// The message text is also reworded: the previous "used slot"
+// framing was self-contradictory (Used() returns true here, but
+// SAMDOS itself treats the slot as free), and obscured the
+// archaeological pattern. The new wording names the actual
+// signature ("type byte 0x00 (erased) but filename/chain are still
+// populated") and labels the pattern ("probably a DEL'd file with
+// recoverable header").
 func init() {
 	Register(Rule{
 		ID:          "DIR-ERASED-IS-ZERO",
-		Severity:    SeverityStructural,
+		Severity:    SeverityInconsistency,
 		Description: "a used directory slot has a non-zero type byte",
 		Citation:    "samdos/src/c.s:1133-1143",
 		Check:       checkDirErasedIsZero,
@@ -77,9 +103,9 @@ func checkDirErasedIsZero(ctx *CheckContext) []Finding {
 		if uint8(fe.Type) == 0 {
 			findings = append(findings, Finding{
 				RuleID:   "DIR-ERASED-IS-ZERO",
-				Severity: SeverityStructural,
+				Severity: SeverityInconsistency,
 				Location: SlotLocation(slot, fe.Name.String()),
-				Message:  "used slot has type byte 0x00, which is the erased-slot sentinel",
+				Message:  "slot has type byte 0x00 (erased) but filename/chain are still populated (probably a DEL'd file with recoverable header)",
 				Citation: "samdos/src/c.s:1133-1143",
 			})
 		}
@@ -169,9 +195,11 @@ func checkDirFirstSectorValid(ctx *CheckContext) []Finding {
 		fs := fe.FirstSector
 		t := fs.Track
 		s := fs.Sector
-		// Side bit (0x80) is informational; mask it off for the cylinder check.
-		cyl := t & 0x7F
-		validTrack := (t < 80 || (t >= 128 && t < 208)) && cyl >= 4
+		// Directory area is side 0 cylinders 0..3 only (Tech Manual L4340-4343);
+		// side 1 cylinders 0..3 (tracks 0x80..0x83) are valid data sectors.
+		// Side 0 (0x00..0x4F): cylinders 0..3 are the directory area, 4..79 are data.
+		// Side 1 (0x80..0xCF): all 80 cylinders are data.
+		validTrack := (t >= 4 && t < 80) || (t >= 128 && t < 208)
 		validSector := s >= 1 && s <= 10
 		if !validTrack || !validSector {
 			findings = append(findings, Finding{
@@ -207,7 +235,7 @@ func checkDirSectorsMatchesChain(ctx *CheckContext) []Finding {
 				RuleID:   "DIR-SECTORS-MATCHES-CHAIN",
 				Severity: SeverityStructural,
 				Location: SlotLocation(slot, fe.Name.String()),
-				Message:  fmt.Sprintf("dir Sectors=%d, but chain walk visited %d sectors", fe.Sectors, count),
+				Message:  fmt.Sprintf("samfile reads exactly fe.Sectors=%d chunks; chain walk visited %d sectors to the (0,0) terminator — File() returns garbage past the chain end or silently truncates depending on direction", fe.Sectors, count),
 				Citation: "samfile.go:743-754",
 			})
 		}

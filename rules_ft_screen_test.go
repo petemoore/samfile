@@ -53,3 +53,22 @@ func TestScreenLengthMatchesModeNegative(t *testing.T) {
 		t.Fatalf("got %d findings, first=%+v; want 1 SCREEN-LENGTH-MATCHES-MODE", len(findings), findings)
 	}
 }
+
+func TestScreenLengthMatchesModeAcceptsPaletteTrailer(t *testing.T) {
+	// Iteration 1 REWORD regression: mode 3 + 24617 bytes (24576
+	// screen data + 41-byte palette/sysvars trailer) is the canonical
+	// ROM SCREEN$ SAVE output and must not fire. 75% of corpus
+	// SCREEN-LENGTH fires were this exact length.
+	di := NewDiskImage()
+	if err := di.AddCodeFile("SCRTR", make([]byte, 24617), 0x8000, 0); err != nil {
+		t.Fatalf("AddCodeFile: %v", err)
+	}
+	dj := di.DiskJournal()
+	dj[0].Type = FT_SCREEN
+	dj[0].FileTypeInfo[0] = 3
+	di.WriteFileEntry(dj, 0)
+	findings := checkScreenLengthMatchesMode(&CheckContext{Disk: di, Journal: di.DiskJournal()})
+	if len(findings) != 0 {
+		t.Errorf("mode 3 + 24617 bytes (canonical palette trailer): %d findings; want 0", len(findings))
+	}
+}

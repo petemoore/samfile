@@ -139,7 +139,7 @@ func checkChainNoCycle(ctx *CheckContext) []Finding {
 func init() {
 	Register(Rule{
 		ID:          "CHAIN-MATCHES-SAM",
-		Severity:    SeverityStructural,
+		Severity:    SeverityInconsistency,
 		Description: "the set of sectors walked by the chain equals the bits set in the SectorAddressMap",
 		Citation:    "samdos/src/c.s:1306-1343",
 		Check:       checkChainMatchesSAM,
@@ -163,7 +163,7 @@ func checkChainMatchesSAM(ctx *CheckContext) []Finding {
 			if !mapSet[s] {
 				findings = append(findings, Finding{
 					RuleID:   "CHAIN-MATCHES-SAM",
-					Severity: SeverityStructural,
+					Severity: SeverityInconsistency,
 					Location: SlotLocation(slot, fe.Name.String()),
 					Message:  fmt.Sprintf("sector %v is visited by the chain but not set in the SectorAddressMap", s),
 					Citation: "samdos/src/c.s:1306-1343",
@@ -175,7 +175,7 @@ func checkChainMatchesSAM(ctx *CheckContext) []Finding {
 			if !walked[s] {
 				findings = append(findings, Finding{
 					RuleID:   "CHAIN-MATCHES-SAM",
-					Severity: SeverityStructural,
+					Severity: SeverityInconsistency,
 					Location: SlotLocation(slot, fe.Name.String()),
 					Message:  fmt.Sprintf("sector %v is set in the SectorAddressMap but not visited by the chain", s),
 					Citation: "samdos/src/c.s:1306-1343",

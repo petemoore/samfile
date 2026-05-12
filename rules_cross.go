@@ -14,7 +14,7 @@ import (
 func init() {
 	Register(Rule{
 		ID:          "CROSS-NO-SECTOR-OVERLAP",
-		Severity:    SeverityFatal,
+		Severity:    SeverityInconsistency,
 		Description: "no two used files claim the same data sector",
 		Citation:    "samdos/src/c.s:895-951",
 		Check:       checkCrossNoSectorOverlap,
@@ -42,9 +42,9 @@ func checkCrossNoSectorOverlap(ctx *CheckContext) []Finding {
 		s := sec
 		findings = append(findings, Finding{
 			RuleID:   "CROSS-NO-SECTOR-OVERLAP",
-			Severity: SeverityFatal,
+			Severity: SeverityInconsistency,
 			Location: SectorLocation(claims[0].Slot, claims[0].Name, &s, -1),
-			Message: fmt.Sprintf("sector %v is claimed by %d slots (first: %d %q, second: %d %q)",
+			Message: fmt.Sprintf("sector %v is claimed by %d slots (first: %d %q, second: %d %q) — SAMDOS LOAD reads each chain independently so files load correctly, but SAVE on this disk may refuse free sectors",
 				s, len(claims), claims[0].Slot, claims[0].Name, claims[1].Slot, claims[1].Name),
 			Citation: "samdos/src/c.s:895-951",
 		})
@@ -102,7 +102,9 @@ func checkCrossDirectoryAreaUnused(ctx *CheckContext) []Finding {
 	forEachUsedSlot(ctx, func(slot int, fe *FileEntry) {
 		result := walkChain(ctx.Disk, fe.FirstSector)
 		for _, st := range result.Steps {
-			if (st.Sector.Track & 0x7F) < 4 {
+			// Directory area is side 0 cylinders 0..3 only (Tech Manual L4340-4343);
+			// side 1 cylinders 0..3 (tracks 0x80..0x83) are valid data sectors.
+			if st.Sector.Track < 4 {
 				s := st.Sector
 				findings = append(findings, Finding{
 					RuleID:   "CROSS-DIRECTORY-AREA-UNUSED",

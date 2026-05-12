@@ -79,7 +79,10 @@ func checkDiskDirectoryTracks(ctx *CheckContext) []Finding {
 		if ref.IsTerminator {
 			continue // (0, 0) terminator is allowed even though Track=0 is in [0..3]
 		}
-		if (ref.Sector.Track & 0x7F) < 4 {
+		// Directory area is side 0 cylinders 0..3 only (Tech Manual L4340-4343);
+		// side 1 cylinders 0..3 (tracks 0x80..0x83) are valid data sectors. The
+		// (0,0) chain terminator is already filtered out above.
+		if ref.Sector.Track < 4 {
 			findings = append(findings, Finding{
 				RuleID:   "DISK-DIRECTORY-TRACKS",
 				Severity: SeverityStructural,

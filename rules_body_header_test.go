@@ -80,13 +80,53 @@ func TestBodyExecMod16KLoMatchesDirPositive(t *testing.T) {
 
 func TestBodyExecMod16KLoMatchesDirNegative(t *testing.T) {
 	di, _ := cleanSingleFileDisk(t, "TEST", 100)
-	// Dir's ExecutionAddressMod16K low byte is 0xFF for no-exec; 0xAA differs.
+	// Iteration 1 SCOPE: the rule now skips when body[5]==0xFF (the
+	// "defer to dir" pattern). To make the rule fire, we must first
+	// take body[5] out of the canonical 0xFF — patching body[5] to
+	// 0x7E also creates a real exec-address-bearing body. Then
+	// patching body[6] alone disagrees with dir's mod16K low byte
+	// (still 0xFF for the no-auto-exec dir).
+	mutateFirstSectorByte(t, di, 5, 0x7E)
 	mutateFirstSectorByte(t, di, 6, 0xAA)
 	findings := checkBodyExecMod16KLoMatchesDir(&CheckContext{
 		Disk: di, Journal: di.DiskJournal(),
 	})
 	if len(findings) != 1 || findings[0].RuleID != "BODY-EXEC-MOD16K-LO-MATCHES-DIR" {
 		t.Fatalf("got %d findings, first=%+v; want 1 BODY-EXEC-MOD16K-LO-MATCHES-DIR", len(findings), findings)
+	}
+}
+
+func TestBodyExecMod16KLoMatchesDirSkipsWhenBody5IsFF(t *testing.T) {
+	// Iteration 1 SCOPE regression test: when body[5]==0xFF (the
+	// canonical "defer to dir" pattern), body[6] is meaningless and
+	// the rule must not fire even when body[6] differs from dir's
+	// mod16K low byte.
+	di, _ := cleanSingleFileDisk(t, "TEST", 100)
+	// body[5] is already 0xFF from AddCodeFile; patch only body[6].
+	mutateFirstSectorByte(t, di, 6, 0xAA)
+	findings := checkBodyExecMod16KLoMatchesDir(&CheckContext{
+		Disk: di, Journal: di.DiskJournal(),
+	})
+	if len(findings) != 0 {
+		t.Errorf("body[5]=0xFF, body[6]=0xAA: %d findings; want 0 (rule must skip when body[5]==0xFF)", len(findings))
+	}
+}
+
+func TestBodyExecDiv16KMatchesDirSkipsWhenBody5IsFF(t *testing.T) {
+	// Iteration 1 SCOPE regression test: when body[5]==0xFF (the
+	// canonical "defer to dir" pattern ROM SAVE writes), the rule
+	// must not fire regardless of dir's value — dir is authoritative
+	// and the body is intentionally signalling "use dir".
+	di, dj := cleanSingleFileDisk(t, "TEST", 100)
+	// Set dir's ExecutionAddressDiv16K to a non-FF value, leaving
+	// body[5] at 0xFF (samfile's default).
+	dj[0].ExecutionAddressDiv16K = 0x05
+	di.WriteFileEntry(dj, 0)
+	findings := checkBodyExecDiv16KMatchesDir(&CheckContext{
+		Disk: di, Journal: di.DiskJournal(),
+	})
+	if len(findings) != 0 {
+		t.Errorf("body[5]=0xFF, dir=0x05: %d findings; want 0 (canonical defer-to-dir pattern)", len(findings))
 	}
 }
 

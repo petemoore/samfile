@@ -124,12 +124,25 @@ The gate has two paths:
 1. Requested-exec path (`HDR+HDN+6`): SAVE-time / `LOAD CODE n,...,exec`
    override populated from dir byte 0xF2. If non-FF, take HDLDEX
    immediately.
-2. Loaded-exec path (`HDL+HDN+6`): from the body-header byte 5
-   (SAMDOS's `hd001..` cache → HDL via dschd / hconr). If non-FF, take
+2. Loaded-exec path (`HDL+HDN+6`): populated from SAMDOS's `hd001..`
+   cache, which `gtfle` (c.s:1376-1379) loads from the dir-side
+   9-byte mirror (dir 0xD3-0xDB), then `hconr` (h.s:336-361)
+   reloads from `uifa+*` (also dir-derived). `txhed` (h.s:38-56)
+   then transmits the dir entry into ROM's HDL/HDR area — so the
+   "loaded exec" path is in practice dir-fed, not body-fed.
+   `ldhd` (f.s:494-497) does read 9 bytes from the body via `lbyt`
+   (c.s:557-570) at LOAD time, but `lbyt` returns each byte in `A`
+   without storing it — the call sequence is a skip-past so that
+   subsequent `ldblk` reads start at body byte 9 (payload). The
+   body's leading 9 bytes never feed into HDL. If non-FF, take
    HDLDEX; if FF, RET (no auto-exec).
 
 So the auto-exec is gated on BOTH the directory entry's byte 0xF2 AND
-the body-header's byte 5. Each must be `0xFF` to disable auto-exec.
+the dir-side mirror at 0xD3+5 (the value SAMDOS treats as the
+"loaded exec page"). The body header's byte 5 is decorative on LOAD.
+For "byte-identical to canonical SAVE" purposes the body mirror is
+still worth checking (see BODY-MIRROR-AT-DIR-D3-DB §5), but it's
+not what the ROM auto-exec gate actually reads.
 
 The "low byte of ExecutionAddressMod16K mirrors at body-header byte 6"
 part of PR-12 prose is half-right: body-header bytes 5-6 are the
@@ -309,7 +322,11 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - Dialect: all
 - Test sketch: after masking flags, type is in {0, 5, 16, 17, 18,
   19, 20}; warn (don't error) on types 1-4, 6-12 (ZX-compat /
-  MasterDOS / SAMDOS-1) and unknown values.
+  MasterDOS / SAMDOS-1) and unknown values. (Iteration 1 FIX:
+  type 0 is the erased-slot sentinel and is now explicitly
+  delegated to DIR-ERASED-IS-ZERO; this rule no longer fires on
+  Type=0, eliminating a 100% double-fire across 2,492 corpus
+  findings.)
 - Open questions: types 1-12 in SAMDOS's DIR table correspond to ZX
   / Plus-D legacy file types. Real-world MGT disks rarely use them.
   Type 6 ("MD.FILE") is MasterDOS; type 8 ("SPECIAL") is opaque. A
@@ -339,14 +356,35 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 ### DIR-ERASED-IS-ZERO — Erased slot is exactly Type==0
 
 - What: A slot with type byte 0 is erased / free. SAMDOS checks this
-  literally; bit 7 + low-5 zero is still erased.
-- Severity: structural
+  literally; bit 7 + low-5 zero is still erased. The rule fires on
+  slots where Type==0 but FirstSector.Track is non-zero — i.e. the
+  type byte says "free" but the filename / chain / SAM are still
+  populated. This is the canonical "DEL/ERASE leaves the file
+  recoverable" archaeological pattern.
+- Severity: inconsistency. The consumer side is well-defined:
+  `fdhf` (c.s:1133-1143) sees `(hl)==0` and treats the slot as
+  free, so the dir walk is not confused. But the orphaned
+  filename / FirstSector / SectorAddressMap disagree with the
+  type byte's "this slot is unused" claim — two views of the
+  same fact disagree (inconsistency), not "disk-walk invariant
+  violated" (structural). 43% of the corpus has at least one
+  such slot — every DEL/ERASE produces one — which is
+  irreconcilable with "structural disk corruption" framing;
+  structural should be reserved for things like CHAIN-NO-CYCLE
+  (3 disks).
 - Source authority: SAMDOS-code + Tech-Manual
 - Citation: `samdos/src/c.s:1133-1143` (`fdhf` — "TEST FOR FREE
   DIRECTORY SPACE"): `ld a,(hl); and a; jr nz,fdhd`.
   Tech Manual L4351-4354.
-- Dialect: all
-- Test sketch: slot is free iff `data[0x00] == 0`.
+- Dialect: all (MasterDOS DEL not independently verified; the
+  43% dialect-uniform fire rate strongly suggests it behaves the
+  same way, but worth a footnote if MasterDOS turns out to zero
+  the entire entry on DEL).
+- Test sketch: a used slot (`FirstSector.Track != 0`) must NOT have
+  `data[0x00] == 0`; if it does, the slot is in the recoverable-
+  DEL'd-file state — fire DIR-ERASED-IS-ZERO. A truly free slot
+  (`Type==0 && FirstSector.Track==0`) is the common case and
+  must not fire.
 
 ### DIR-NAME-PADDING — Filename is 10 bytes, space-padded ASCII
 
@@ -421,7 +459,25 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - What: The count at 0x0B-0x0C must equal the number of sectors
   visited when walking the chain from FirstSector to the (0,0)
   terminator.
-- Severity: structural
+- Severity: structural (iter-3 kept structural and reworded the
+  finding message: the structural tier is "disk-walk invariant;
+  violation produces undefined behaviour or sector reuse" — and
+  samfile's `(*DiskImage).File` at `samfile.go:743-754` reads
+  exactly `fe.Sectors` chunks without consulting the (0,0)
+  terminator, so a too-large `Sectors` causes `File()` to walk
+  past the terminator into another file's chain (garbage reads),
+  while a too-small `Sectors` silently truncates the file. SAMDOS
+  itself ignores `Sectors` on LOAD — `dos`/`dos8` is terminator-
+  driven (`samdos/src/b.s:104-110`) — and increments it only on
+  SAVE (`fnfs` at `samdos/src/c.s:946-948`), so the rule is
+  samfile-consumer-authority not SAMDOS-authority; but the
+  consumer-side "undefined behaviour" is exactly what the
+  structural tier exists to flag. The message is reworded to
+  surface the consumer hazard so a samfile user can see why the
+  finding matters. Corpus evidence: 4,711 fires / 320 disks (40%);
+  291/320 are also in the CROSS-NO-SECTOR-OVERLAP / CHAIN-MATCHES-
+  SAM cluster, 29 fire independently and are exactly the disks
+  where Sectors-vs-chain disagreement is the only signal.)
 - Source authority: samfile-implicit
 - Citation: `samfile.go:743-754` reads `fe.Sectors` chunks and stops:
 
@@ -557,7 +613,16 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 
 - What: The set of sectors visited during a chain walk must equal
   the set of bits set in dir bytes 0x0F-0xD1.
-- Severity: structural
+- Severity: inconsistency (demoted in iter-3: SAMDOS LOAD walks the
+  chain via next-link bytes 510-511 (`samdos/src/b.s:104-110`) and
+  never reads the per-slot SectorAddressMap; the chain is the
+  LOAD-time authority. The SAM map is SAVE-side bookkeeping populated
+  by `cfsm`/`fnfs` (`samdos/src/c.s:1306-1343`,
+  `samdos/src/c.s:895-951`). A chain-vs-map disagreement is a
+  writer-tool bug — "two views of the same fact disagree" — not a
+  disk-walk invariant violation. Corpus evidence: 4,886 fires / 316
+  disks (40%); strongly correlated with CROSS-NO-SECTOR-OVERLAP
+  (291/316) and DIR-SECTORS-MATCHES-CHAIN (315/316).)
 - Source authority: SAMDOS-code + samfile-implicit
 - Citation: `samdos/src/c.s:1306-1343` (`cfsm` — Close File Sector
   Map): the allocator-side that writes both the SAM map and the
@@ -589,7 +654,17 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - What: The disk-wide allocation map (bitwise OR of every used
   slot's `SectorAddressMap`) has no overlap — each set bit must
   come from exactly one slot.
-- Severity: fatal
+- Severity: inconsistency (demoted from fatal→structural→inconsistency
+  across iterations 1-3: SAMDOS LOAD walks the chain via next-link
+  bytes 510-511 and does not consult the SectorAddressMap
+  (`samdos/src/b.s:104-110`); the disagreement is between the merged
+  SAM-map view ("each sector belongs to one file") and the chain-walk
+  view (the LOAD authority), a "two views of the same fact disagree"
+  pattern. The hazard is at SAVE time when `fnfs` may refuse a "free"
+  sector (`samdos/src/c.s:895-951`). Corpus evidence: 162,727 fires /
+  299 disks (37%); sample/audio disks and non-SAMDOS-written disks
+  routinely exhibit shared sectors with no load-time corruption.
+  Follow-up: per-disk summary mode to collapse the per-sector fan-out.)
 - Source authority: SAMDOS-code
 - Citation: SAMDOS allocator at `samdos/src/c.s:895-951` (`fnfs`):
   it scans the merged `sam` array (built from every dir entry) for
@@ -625,7 +700,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - Citation: `samfile.go:984-987` (`SAMMask` formula). For chains:
   any link `(track, sector)` with `track < 4` would be invalid.
 - Dialect: all
-- Test sketch: every link in every chain has `(track & 0x7F) >= 4`.
+- Test sketch: every link in every chain has `track in {4..79, 128..207}`
+  (i.e. `track < 4` only on side 0; side 1 cylinders 0..3 are data sectors).
 
 ---
 
@@ -649,7 +725,12 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
   PROTECTED bits masked off. (SAMDOS keeps these in sync via
   `svhd` writing the same `hd001` value to dir 0xD3 and body byte
   0; the dir's own type byte is set separately by `ofsm`.)
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from the dir entry — gtfle → uifa → hconr → ROM HDL/HDR via
+  txhed — and the body's first 9 bytes are skipped past by ldhd
+  without being stored; a body↔dir mismatch has zero load-time
+  consequence. See BODY-MIRROR-AT-DIR-D3-DB §5 for the citation
+  chain.)
 - Source authority: SAMDOS-code
 - Citation: `samdos/src/c.s:1395-1408` (`gtfle`-derived `gtfl1`
   block) and `samdos/src/b.s:255` (`hd001:  defb &13`).
@@ -660,7 +741,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 
 - What: Body header `LengthMod16K` (LE 16-bit at bytes 1-2) must
   equal the dir entry's mirrored field at 0xF0-0xF1.
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from dir via gtfle/hconr — see BODY-MIRROR-AT-DIR-D3-DB).
 - Source authority: SAMDOS-code
 - Citation: `samdos/src/c.s:1376-1379` (`gtfle` reads 9 bytes from
   dir+211 into `hd001..page1` — which IS `hd001/hd0b1/hd0d1/.../
@@ -674,7 +756,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 
 - What: Body `PageOffset` (LE 16-bit at bytes 3-4) mirrors dir
   `StartAddressPageOffset` at 0xED-0xEE.
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from dir via gtfle/hconr — see BODY-MIRROR-AT-DIR-D3-DB).
 - Source authority: SAMDOS-code
 - Citation: same as BODY-LENGTHMOD16K-MATCHES-DIR; the 9-byte
   mirror at dir+211 includes bytes 3-4.
@@ -715,7 +798,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 ### BODY-PAGES-MATCHES-DIR — Body byte 7 == dir byte 0xEF
 
 - What: Body `Pages` mirrors dir `Pages` at 0xEF.
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from dir via gtfle/hconr — see BODY-MIRROR-AT-DIR-D3-DB).
 - Source authority: SAMDOS-code
 - Citation: 9-byte mirror at dir+211 (see PR-12 hypothesis #1).
 - Dialect: all
@@ -727,7 +811,8 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
   Note that only the low 5 bits are functional (page index 0..31);
   bits 5-7 are decorative and may differ between byte-perfect
   ROM-SAVE output and synthetic writers (cf. `sam-stub-audit.md`).
-- Severity: inconsistency
+- Severity: cosmetic (body mirror is save-time-only; LOAD reads
+  from dir via gtfle/hconr — see BODY-MIRROR-AT-DIR-D3-DB).
 - Source authority: SAMDOS-code + samfile-implicit
 - Citation: 9-byte mirror at dir+211. samfile's `Start()`
   masks `(StartPage & 0x1F)+1`:
@@ -745,11 +830,31 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - What: SAMDOS keeps a verbatim 9-byte body-header cache at dir
   offset 0xD3-0xDB. See §0 for the verification. Byte 0xD2 is
   unused; expect zero.
-- Severity: inconsistency (writer that omits this still works because
-  SAMDOS re-reads from body on next access, but it deviates from
-  canonical SAVE output)
+- Severity: cosmetic. Canonical SAMDOS SAVE writes both sides
+  (svhd at `samdos/src/f.s:462-471` stores `hd001..page1` to dir
+  0xD3-0xDB AND to the file body's leading 9 bytes via `sbyt`),
+  so the mirror IS a real SAVE-time convention. But body bytes
+  0..8 are unused on LOAD: `ldhd` (`samdos/src/f.s:494-497`)
+  calls `lbyt` (`samdos/src/c.s:557-570`) nine times — `lbyt`
+  returns each body byte in `A` *without storing it anywhere* —
+  so `ldhd` only advances the read pointer past the 9-byte body
+  header so subsequent `ldblk` reads start at body byte 9 (the
+  payload). The fields ROM consumes on LOAD all come from the
+  dir entry: `gtfle` (`samdos/src/c.s:1376-1379`) fills the
+  9-byte cache `hd001..page1` and `uifa+*` from dir 0xD3-0xDB
+  and dir 0xEC-0xF1; `hconr` (`samdos/src/h.s:336-361`) reloads
+  `hd001 / page1 / hd0d1 / pges1 / hd0b1` from `uifa+*` (i.e.
+  dir-derived, NOT from the body); `txhed` (`samdos/src/h.s:38-56`)
+  transmits 48 bytes from `difa` (the dir-entry buffer) into
+  ROM's HDL/HDR area. Body bytes 0..8 never enter ROM's view.
+  A writer that omits the mirror produces a disk that loads
+  identically — and 93% of samdos2-written corpus disks do
+  exactly that. The mirror is worth keeping as a "byte-identical
+  to canonical SAMDOS SAVE output" signal, but it is not an
+  integrity indicator.
 - Source authority: SAMDOS-code
-- Citation: §0, `samdos/src/f.s:462-471` + `c.s:1376-1379`.
+- Citation: §0, `samdos/src/f.s:462-471` + `c.s:1376-1379` +
+  `f.s:494-497` + `c.s:557-570` + `h.s:336-361` + `h.s:38-56`.
 - Dialect: all
 - Test sketch: `dir[0xD2] == 0`; `dir[0xD3..0xDC] == body[0..9]`.
 - Open questions: must `dir[0xD2]` be exactly zero, or merely
@@ -888,14 +993,21 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 ### CODE-FILETYPEINFO-EMPTY — Dir 0xDD-0xE7 unused for CODE
 
 - What: For FT_CODE, dir bytes 0xDD-0xE7 (`FileTypeInfo`) are
-  unused. samfile's `AddCodeFile` leaves them at zero.
+  unused. Three conventions are observed:
+  - 0x00 × 11 — samfile's `AddCodeFile` leaves the struct zero-init.
+  - 0xFF × 11 — real ROM SAMDOS-2 SAVE 0xFF-fills via HDCLP2
+    (rom-disasm:22076-22080).
+  - 0x20 — HDR space-fill leakage from `HDCLP` 25-byte
+    names-area fill (rom-disasm:22070-22074); iteration 1 added 0x20
+    after observing 16,727/16,932 (99%) corpus fires on this value.
 - Severity: cosmetic
-- Source authority: samfile-implicit
+- Source authority: samfile-implicit + ROM
 - Citation: `samfile.go:798-827` (`AddCodeFile` does not set
-  `FileTypeInfo`).
+  `FileTypeInfo`); rom-disasm:22070-22080 (HDR space-fill + HDCLP2
+  0xFF-fill).
 - Dialect: all
-- Test sketch: warn if any byte in `dir[0xDD..0xE8]` is non-zero
-  for a CODE file (unlikely; just a sanity check).
+- Test sketch: warn if any byte in `dir[0xDD..0xE8]` is not in
+  {0x00, 0xFF, 0x20} for a CODE file.
 
 ---
 
@@ -975,8 +1087,10 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
   `sambasic/file.go:21-34` Line.Bytes writes the same way.
 - Dialect: all
 - Test sketch: walk lines from PROG to NVARS; assert each line's
-  length matches its actual size, all line numbers are within
-  documented range (1..16383 for SAM, 1..9999 typical).
+  length matches its actual size, all line numbers are non-zero
+  (1..65535, uint16 BE; widened from 1..16383 in iteration 1 after
+  corpus evidence of legitimate line numbers in the 20000..65000
+  range — `samfile` had a 0x3FFF mask but ROM BASIC does not).
 
 ### BASIC-STARTLINE-FF-DISABLES — ExecutionAddressDiv16K == 0xFF means no auto-RUN
 
@@ -996,19 +1110,25 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - Test sketch: for FT_SAM_BASIC, `dir[0xF2] in {0x00, 0xFF}`; if
   `0x00`, `dir[0xF3..0xF5]` is a valid line number.
 
-### BASIC-STARTLINE-WITHIN-PROG — Auto-RUN line is in the saved program
+### BASIC-STARTLINE-WITHIN-PROG — Auto-RUN line is at or below the highest saved line
 
 - What: If auto-RUN is enabled, the line number at 0xF3-0xF4 should
-  correspond to an actual line number in the program area.
-- Severity: cosmetic (warn-only — auto-RUN of a missing line just
-  errors with "Statement lost", not a corruption)
-- Source authority: empirical-convention
+  be at or below the highest line number in the program area. SAM
+  BASIC's RUN N uses NEXT-LINE-GE semantics (the lookup finds the
+  first line whose number is >= N), so RUN N at or below the lowest
+  saved line is the canonical "start from the beginning" idiom and
+  is not an error — only RUN N above the highest saved line genuinely
+  has no line to run.
+- Severity: cosmetic (warn-only)
+- Source authority: ROM (RUN command's line-lookup semantics)
 - Citation: ROM auto-RUN dispatch via `NEW PPC` sysvar after LOAD;
-  if line doesn't exist, BASIC errors. No code citation enforces
-  pre-LOAD validation.
+  line lookup uses NEXT-LINE-GE not LINE-EQ.
 - Dialect: all
-- Test sketch: walk program, collect line numbers, check
-  `dir[0xF3..0xF5]` is among them.
+- Test sketch: walk program, find the highest line number, warn if
+  `dir[0xF3..0xF5]` is strictly greater than it. (Iteration 1
+  REWORD: previously fired on "line not present in saved program",
+  which mis-categorised the 78% canonical `RUN 1, first-line=10`
+  pattern as a problem; SAM BASIC's RUN tolerates this.)
 
 ### BASIC-MGTFLAGS-20 — MGTFlags is typically 0x20 for BASIC files
 
@@ -1063,18 +1183,24 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - Dialect: all
 - Test sketch: `dir[0xDD] in {1, 2, 3, 4}` for FT_SCREEN.
 
-### SCREEN-LENGTH-MATCHES-MODE — Body length matches mode's screen size
+### SCREEN-LENGTH-MATCHES-MODE — Body length within [min, min+512] for the mode
 
-- What: For FT_SCREEN, the body length should match the documented
-  screen size for the given mode: mode 1 = 6912 bytes, mode 2 = 6912,
-  modes 3-4 = 24576 bytes.
+- What: For FT_SCREEN, the body length must be at least the
+  documented screen-data size for the given mode (mode 1/2 = 6912
+  bytes; mode 3/4 = 24576 bytes) and at most that minimum plus 512
+  bytes of slack. ROM SCREEN$ SAVE canonically appends a
+  palette + sysvars trailer (16 bytes of CLUT + LINE/ATTR/state),
+  so real-world MODE 3/4 screens are commonly 24576+41 = 24617
+  bytes; LOAD SCREEN$ ignores the trailer.
 - Severity: structural
 - Source authority: Tech-Manual
-- Citation: Tech Manual modes table.
+- Citation: Tech Manual L2156 ("spare 8K following a MODE 3/4
+  screen"); corpus empirical 75% of fires are 24576+41 = 24617.
 - Dialect: all
-- Test sketch: cross-reference mode byte and `Length()`.
-- Open questions: exact mode/length mapping; needs Tech Manual
-  cross-check at finalisation time.
+- Test sketch: assert `min <= Length() <= min + 512`, where `min`
+  is 6912 for modes 1/2 and 24576 for modes 3/4. (Iteration 1
+  REWORD: previously required strict equality, which fired on
+  every ROM-SAVE screen with a palette trailer.)
 
 ---
 
@@ -1108,7 +1234,10 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 - What: For an image to be bootable on real SAM hardware, some
   directory entry's FirstSector must be (4, 1) so that the ROM
   BOOTEX reads the right sector at `&8000`.
-- Severity: fatal (bootability)
+- Severity: structural (bootability) — demoted from fatal in iteration
+  1: 10.6% of real-world disks (85/800 in the corpus) are non-bootable
+  archives that load correctly under another boot disk; SAMDOS neither
+  rejects nor corrupts them, so the spec's "fatal" tier is too strong.
 - Source authority: ROM
 - Citation: rom-disasm:20473-20598 (`BOOTEX`):
 
@@ -1125,7 +1254,10 @@ byte-6-equals-low-byte-of-0xF3..0xF4 equality. See
 
 - What: For ROM BOOTEX to dispatch to the loaded sector, bytes
   256-259 of T4S1 must spell `B O O T` (any case; bit 7 ignored).
-- Severity: fatal (bootability)
+- Severity: structural (bootability) — demoted from fatal in iteration
+  1: 27.2% of real-world disks (218/800) own T4S1 but lack the BOOT
+  signature; these load correctly under another boot disk, so
+  "fatal" is too strong by the spec's definition.
 - Source authority: ROM
 - Citation: rom-disasm:20582-20598 (`BTNOE`/`BTCK`/`BTLY`):
 

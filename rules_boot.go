@@ -34,13 +34,15 @@ func bootSlot(dj *DiskJournal) (slot int, fe *FileEntry, found bool) {
 // Fires on a single disk-wide finding when no used slot owns T4S1.
 //
 // Note: data-only / archive disks legitimately have no boot file; this
-// rule's "fatal" severity flags non-bootability, not corruption.
-// Phase 7's corpus-validation pass may demote to cosmetic if archive
-// disks dominate the corpus.
+// rule flags non-bootability, not corruption. Iteration 1 corpus
+// evidence (85 fires / 85 disks = 10.6%) confirmed the rule's own
+// caveat: a non-bootable archive disk is neither rejected nor
+// corrupted by SAMDOS once loaded under another boot disk, so the
+// catalog severity is structural (bootability), not fatal.
 func init() {
 	Register(Rule{
 		ID:          "BOOT-OWNER-AT-T4S1",
-		Severity:    SeverityFatal,
+		Severity:    SeverityStructural,
 		Description: "some used directory entry has FirstSector (4, 1) so the disk is bootable on SAM hardware",
 		Citation:    "rom-disasm:20473-20598",
 		Check:       checkBootOwnerAtT4S1,
@@ -53,7 +55,7 @@ func checkBootOwnerAtT4S1(ctx *CheckContext) []Finding {
 	}
 	return []Finding{{
 		RuleID:   "BOOT-OWNER-AT-T4S1",
-		Severity: SeverityFatal,
+		Severity: SeverityStructural,
 		Location: DiskWideLocation(),
 		Message:  "no used slot has FirstSector (track 4, sector 1); disk is not bootable on real SAM hardware",
 		Citation: "rom-disasm:20473-20598",
@@ -66,10 +68,16 @@ func checkBootOwnerAtT4S1(ctx *CheckContext) []Finding {
 // (the ROM compares (disk_byte XOR expected_byte) AND 0x5F per
 // rom-disasm:20582-20598). Only applies when a boot owner exists;
 // BOOT-OWNER-AT-T4S1 reports the no-owner case separately.
+//
+// Iteration 1 corpus evidence: 218 fires / 218 disks = 27.2%. Like
+// BOOT-OWNER-AT-T4S1, this flags non-bootability rather than data
+// corruption — SAMDOS neither rejects nor mangles a disk whose T4S1
+// lacks the "BOOT" signature. Severity is therefore structural
+// (bootability), not fatal.
 func init() {
 	Register(Rule{
 		ID:          "BOOT-SIGNATURE-AT-256",
-		Severity:    SeverityFatal,
+		Severity:    SeverityStructural,
 		Description: "T4S1 bytes 256-259 spell \"BOOT\" (case-insensitive, bit 7 ignored)",
 		Citation:    "rom-disasm:20582-20598",
 		Check:       checkBootSignatureAt256,
@@ -93,7 +101,7 @@ func checkBootSignatureAt256(ctx *CheckContext) []Finding {
 		if (sd[256+i]^expected[i])&0x5F != 0 {
 			return []Finding{{
 				RuleID:   "BOOT-SIGNATURE-AT-256",
-				Severity: SeverityFatal,
+				Severity: SeverityStructural,
 				Location: SlotLocation(slot, fe.Name.String()),
 				Message:  fmt.Sprintf("T4S1 boot signature mismatch at byte %d: got 0x%02x, expected 0x%02x (masked with 0x5F)", 256+i, sd[256+i], expected[i]),
 				Citation: "rom-disasm:20582-20598",

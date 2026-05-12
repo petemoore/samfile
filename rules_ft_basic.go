@@ -185,12 +185,24 @@ func checkBasicProgEndSentinel(ctx *CheckContext) []Finding {
 // Walk the program with sambasic.Parse; any parse failure means the
 // big-endian line-number / little-endian length / 0x0D-terminator
 // invariant doesn't hold somewhere. Also check each line number is
-// in 1..16383.
+// non-zero (line 0 doesn't exist in SAM BASIC).
+//
+// Iteration 1 SCOPE: widened from 1..16383 to 1..65535. The 16383
+// cap came from a samfile-specific 0x3FFF mask, but SAM BASIC stores
+// line numbers as 16-bit big-endian — line numbers above 16383 are
+// legitimate. Corpus evidence: 1,098 fires / 385 disks, with several
+// hundred messages reading `line number 20000/50000/60000` — real
+// "library" / "internal" line numbers in published BASIC programs.
+// Line 0 (309 fires) remains structurally invalid: BASIC has no
+// line 0, so it is dropped from the accepted range.
+//
+// Line.Number is `uint16`, so the upper bound 65535 is implicit in
+// the type; only the `== 0` check remains as an explicit guard.
 func init() {
 	Register(Rule{
 		ID:          "BASIC-LINE-NUMBER-BE",
 		Severity:    SeverityStructural,
-		Description: "FT_SAM_BASIC program parses cleanly and every line number is in 1..16383",
+		Description: "FT_SAM_BASIC program parses cleanly and every line number is in 1..65535 (uint16 BE; widened from 1..16383 in iteration 1)",
 		Citation:    "sambasic/parse.go",
 		Check:       checkBasicLineNumberBE,
 	})
@@ -222,11 +234,13 @@ func checkBasicLineNumberBE(ctx *CheckContext) []Finding {
 			return
 		}
 		for _, ln := range bf.Lines {
-			if ln.Number < 1 || ln.Number > 16383 {
+			// Line 0 doesn't exist in SAM BASIC; the upper bound 65535
+			// is implicit in Line.Number's uint16 type.
+			if ln.Number == 0 {
 				findings = append(findings, Finding{
 					RuleID: "BASIC-LINE-NUMBER-BE", Severity: SeverityStructural,
 					Location: SlotLocation(slot, fe.Name.String()),
-					Message:  fmt.Sprintf("BASIC line number %d out of range (1..16383)", ln.Number),
+					Message:  fmt.Sprintf("BASIC line number %d out of range (1..65535)", ln.Number),
 					Citation: "sambasic/parse.go",
 				})
 				return // one finding per slot
@@ -268,11 +282,15 @@ func checkBasicStartLineFFDisables(ctx *CheckContext) []Finding {
 		}
 		if marker == 0x00 {
 			line := fe.SAMBASICStartLine
-			if line == 0 || line == 0xFFFF || line > 16383 {
+			// Iteration 1 SCOPE: line numbers are 16-bit BE; widen the
+			// accepted range from 1..16383 to 1..65534 (excluding 0xFFFF
+			// which is the no-auto-RUN sentinel). Companion to
+			// BASIC-LINE-NUMBER-BE.
+			if line == 0 || line == 0xFFFF {
 				findings = append(findings, Finding{
 					RuleID: "BASIC-STARTLINE-FF-DISABLES", Severity: SeverityStructural,
 					Location: SlotLocation(slot, fe.Name.String()),
-					Message:  fmt.Sprintf("BASIC auto-RUN enabled (dir[0xF2]=0x00) but start-line %d is invalid (1..16383)", line),
+					Message:  fmt.Sprintf("BASIC auto-RUN enabled (dir[0xF2]=0x00) but start-line %d is invalid (1..65534; 0xFFFF disables auto-RUN)", line),
 					Citation: "rom-disasm:22136-22141",
 				})
 			}
@@ -282,14 +300,30 @@ func checkBasicStartLineFFDisables(ctx *CheckContext) []Finding {
 }
 
 // ----- BASIC-STARTLINE-WITHIN-PROG -----
-// When auto-RUN is enabled, the start-line should correspond to an
-// actual line in the saved program. Cosmetic — auto-RUN of a missing
-// line just errors with "Statement lost", it's not a corruption.
+// When auto-RUN is enabled, the start-line should not exceed the
+// highest line number in the saved program. ROM BASIC's RUN N uses
+// NEXT-LINE-GE semantics (the lookup finds the first line whose
+// number is >= N), so `RUN N` where N is less than or equal to the
+// highest line in the program starts at the first line at or after
+// N — this is exactly the canonical "RUN 1 to start from the
+// beginning" idiom. Only `RUN N` where N is greater than every
+// saved line is a real bug: there's no line at or after N, and
+// BASIC errors out.
+//
+// Iteration 1 REWORD: previously fired on "start-line not present
+// in the saved program" — which mis-described the rule's intent
+// because the canonical "RUN 1 with first line 10" pattern (78% of
+// 3,074 corpus fires) is not an error, just a marker for "start
+// from the beginning". The catalog's "Statement lost" framing was
+// also wrong: SAM BASIC's NEXT-LINE-GE lookup means RUN N at or
+// below the lowest line is a no-op, not an error.
+//
+// Severity stays cosmetic.
 func init() {
 	Register(Rule{
 		ID:          "BASIC-STARTLINE-WITHIN-PROG",
 		Severity:    SeverityCosmetic,
-		Description: "FT_SAM_BASIC auto-RUN start-line exists in the saved program",
+		Description: "FT_SAM_BASIC auto-RUN start-line is at or below the highest saved line (RUN's NEXT-LINE-GE lookup tolerates start-lines below the lowest saved line)",
 		Citation:    "rom-disasm:22136-22141",
 		Check:       checkBasicStartLineWithinProg,
 	})
@@ -316,18 +350,29 @@ func checkBasicStartLineWithinProg(ctx *CheckContext) []Finding {
 		if err != nil {
 			return // BASIC-LINE-NUMBER-BE reports the parse failure
 		}
+		if len(bf.Lines) == 0 {
+			return // empty program; BASIC-LINE-NUMBER-BE / parse rules cover this
+		}
 		want := fe.SAMBASICStartLine
+		// Find the highest line number in the saved program.
+		var highest uint16
 		for _, ln := range bf.Lines {
-			if ln.Number == want {
-				return
+			if ln.Number > highest {
+				highest = ln.Number
 			}
 		}
-		findings = append(findings, Finding{
-			RuleID: "BASIC-STARTLINE-WITHIN-PROG", Severity: SeverityCosmetic,
-			Location: SlotLocation(slot, fe.Name.String()),
-			Message:  fmt.Sprintf("BASIC auto-RUN line %d not present in the saved program", want),
-			Citation: "rom-disasm:22136-22141",
-		})
+		// Iteration 1 REWORD: SAM BASIC RUN N uses NEXT-LINE-GE
+		// semantics. `want` at or below `highest` always resolves
+		// to a saved line (the first line whose number is >= want);
+		// only `want > highest` produces no line to run.
+		if want > highest {
+			findings = append(findings, Finding{
+				RuleID: "BASIC-STARTLINE-WITHIN-PROG", Severity: SeverityCosmetic,
+				Location: SlotLocation(slot, fe.Name.String()),
+				Message:  fmt.Sprintf("BASIC auto-RUN line %d is greater than the highest saved line %d; BASIC's NEXT-LINE-GE lookup will find no line to run", want, highest),
+				Citation: "rom-disasm:22136-22141",
+			})
+		}
 	})
 	return findings
 }
