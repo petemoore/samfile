@@ -147,11 +147,32 @@ func checkBasicVarsGapInvariant(ctx *CheckContext) []Finding {
 // The tokenised program ends with a 0xFF sentinel byte. The byte at
 // body[ProgramLength-1] is the sentinel (NVARS-PROG is the program-area
 // end offset).
+//
+// Iteration 2 SCOPE: restrict to DialectSAMDOS1 + DialectSAMDOS2.
+// Corpus iter-2 (2026-05-12) showed 29.2% fail-rate on masterdos
+// vs 0.5-0.7% on samdos1/samdos2. Masterdos's BASIC file layout
+// uses a different convention (also reflected in
+// BASIC-VARS-GAP-INVARIANT's `Dialect: SAMDOS-2 = 604; MasterDOS =
+// 2156` split).
+//
+// Source check against MasterDOS 2.3 disassembly
+// (dandoore/masterdos@HEAD masterdos23.asm:10988):
+//
+//   LD   (HL),&FF   ;ENSURE PROG TERMINATED
+//
+// — masterdos DOES write the 0xFF sentinel. So the byte exists;
+// the issue is that samfile's `ProgramLength()` (which assumes
+// the samdos PAGEFORM convention) lands on a different offset for
+// masterdos files. Until masterdos's BASIC layout is modelled in
+// sambasic, samfile reads the wrong byte and produces a spurious
+// "no 0xFF sentinel" finding on masterdos disks. Fire only on
+// samdos1+samdos2 until then.
 func init() {
 	Register(Rule{
 		ID:            "BASIC-PROG-END-SENTINEL",
 		Severity:      SeverityStructural,
-		Description:   "FT_SAM_BASIC program-area ends with a 0xFF sentinel byte",
+		Dialects:      []Dialect{DialectSAMDOS1, DialectSAMDOS2},
+		Description:   "FT_SAM_BASIC program-area ends with a 0xFF sentinel byte (samdos1 / samdos2 only)",
 		Citation:      "sambasic/file.go:36-42",
 		Check:         checkBasicProgEndSentinel,
 		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SAM_BASIC)},
@@ -201,11 +222,30 @@ func checkBasicProgEndSentinel(ctx *CheckContext) []Finding {
 //
 // Line.Number is `uint16`, so the upper bound 65535 is implicit in
 // the type; only the `== 0` check remains as an explicit guard.
+//
+// Iteration 2 SCOPE: restrict to DialectSAMDOS1 + DialectSAMDOS2.
+// Corpus iter-2 (2026-05-12) showed 31.4% fail-rate on masterdos
+// vs 1.8%/2.7% on samdos1/samdos2 — and the rule co-fires with
+// BASIC-PROG-END-SENTINEL on 126 of 131 disks (Jaccard 0.47).
+// Same root cause as that rule: when samfile parses a masterdos
+// BASIC body as if it were samdos-format, the parser walks past
+// the real program end into NVARS bytes and reports spurious
+// line=0 / "body extends past input" findings.
+//
+// Source check against MasterDOS 2.3 disassembly: masterdos's
+// BASIC layout uses a 2156-byte vars-gap (vs samdos2's 604; see
+// BASIC-VARS-GAP-INVARIANT) and writes a 0xFF program terminator
+// (masterdos23.asm:10988), but its FileTypeInfo PAGEFORM doesn't
+// translate into the samdos convention samfile's
+// `ProgramLength()` assumes. Until sambasic gains a masterdos-
+// aware decoder, this rule's structural severity is only
+// trustworthy on samdos1+samdos2.
 func init() {
 	Register(Rule{
 		ID:            "BASIC-LINE-NUMBER-BE",
 		Severity:      SeverityStructural,
-		Description:   "FT_SAM_BASIC program parses cleanly and every line number is in 1..65535 (uint16 BE; widened from 1..16383 in iteration 1)",
+		Dialects:      []Dialect{DialectSAMDOS1, DialectSAMDOS2},
+		Description:   "FT_SAM_BASIC program parses cleanly and every line number is in 1..65535 (samdos1 / samdos2 only — masterdos BASIC layout not yet modelled in sambasic)",
 		Citation:      "sambasic/parse.go",
 		Check:         checkBasicLineNumberBE,
 		Applicability: &RuleApplicability{Scope: SlotScope, Filter: typedSlot(FT_SAM_BASIC)},
