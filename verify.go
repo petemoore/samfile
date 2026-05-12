@@ -122,7 +122,26 @@ type Rule struct {
 	Dialects    []Dialect // dialects the rule applies to; nil/empty = all
 	Description string    // one-line summary, used in human output
 	Citation    string    // file:line of the strongest evidence
-	Check       func(ctx *CheckContext) []Finding
+
+	// Legacy single-shot check. Mutually exclusive with CheckSubject.
+	// Kept for rules that haven't been migrated to the per-subject
+	// model. If CheckSubject is non-nil, Check is ignored.
+	Check func(ctx *CheckContext) []Finding
+
+	// Scope identifies the per-subject iteration scope when
+	// CheckSubject is set. Ignored for legacy (Check-only) rules.
+	Scope SubjectScope
+
+	// Applies reports whether subject is eligible for this rule. If
+	// nil, the rule applies to all subjects of its Scope. The number
+	// of applicable subjects is the denominator for fail-rate
+	// analysis in the audit pipeline.
+	Applies func(ctx *CheckContext, subject Subject) bool
+
+	// CheckSubject evaluates one applicable subject. Returns nil for
+	// pass, a Finding pointer for fail. The framework calls this once
+	// per applicable subject and emits a CheckEvent for each call.
+	CheckSubject func(ctx *CheckContext, subject Subject) *Finding
 }
 
 // allRules is the package-private registry. Rules register at package
@@ -158,10 +177,16 @@ func Rules() []Rule {
 // another expensive derivation (e.g. a combined sector map), add
 // it as a field on CheckContext and memoise it in Verify.
 type CheckContext struct {
-	Disk    *DiskImage
-	Journal *DiskJournal
-	Dialect Dialect
+	Disk     *DiskImage
+	Journal  *DiskJournal
+	Dialect  Dialect
+	recorder *EventRecorder
 }
+
+// SetRecorder installs an EventRecorder that receives a CheckEvent
+// per (rule, applicable subject) pair during Verify. nil is fine —
+// the text-output path leaves the recorder unset.
+func (ctx *CheckContext) SetRecorder(r *EventRecorder) { ctx.recorder = r }
 
 // VerifyReport is the result of running Verify on a DiskImage.
 // Findings is the full ordered slice; the helper methods filter
@@ -270,20 +295,91 @@ func (r VerifyReport) Filter(opts FilterOpts) []Finding {
 // conservative: when it returns DialectUnknown (empty or ambiguous
 // disks), only all-dialects rules run.
 func (di *DiskImage) Verify() VerifyReport {
+	return di.verifyInternal(nil)
+}
+
+// VerifyWithRecorder runs verify and captures every Check event into
+// the provided recorder (in addition to producing the VerifyReport).
+// Use this from the JSONL CLI path.
+func (di *DiskImage) VerifyWithRecorder(rec *EventRecorder) VerifyReport {
+	return di.verifyInternal(rec)
+}
+
+func (di *DiskImage) verifyInternal(rec *EventRecorder) VerifyReport {
 	dialect := DetectDialect(di)
 	ctx := &CheckContext{
-		Disk:    di,
-		Journal: di.DiskJournal(),
-		Dialect: dialect,
+		Disk:     di,
+		Journal:  di.DiskJournal(),
+		Dialect:  dialect,
+		recorder: rec,
 	}
 	report := VerifyReport{Dialect: dialect}
 	for _, rule := range allRules {
 		if !ruleAppliesToDialect(rule, dialect) {
 			continue
 		}
-		report.Findings = append(report.Findings, rule.Check(ctx)...)
+		if rule.CheckSubject != nil {
+			subjects := ctx.subjectsForScope(rule.Scope)
+			for _, subj := range subjects {
+				applicable := rule.Applies == nil || rule.Applies(ctx, subj)
+				if !applicable {
+					rec.Record(CheckEvent{
+						RuleID: rule.ID, Scope: rule.Scope.String(),
+						Ref: subj.Ref(), Outcome: "not_applicable",
+						Attrs: subj.Attributes(),
+					})
+					continue
+				}
+				finding := rule.CheckSubject(ctx, subj)
+				outcome := "pass"
+				if finding != nil {
+					outcome = "fail"
+					report.Findings = append(report.Findings, *finding)
+				}
+				rec.Record(CheckEvent{
+					RuleID: rule.ID, Scope: rule.Scope.String(),
+					Ref: subj.Ref(), Outcome: outcome,
+					Attrs: subj.Attributes(), Finding: finding,
+				})
+			}
+			continue
+		}
+		// Legacy path: rule provides Check only.
+		legacyFindings := rule.Check(ctx)
+		report.Findings = append(report.Findings, legacyFindings...)
+		for i := range legacyFindings {
+			f := legacyFindings[i]
+			ref := "disk"
+			if f.Location.Slot >= 0 {
+				ref = fmt.Sprintf("slot=%d", f.Location.Slot)
+			}
+			rec.Record(CheckEvent{
+				RuleID: rule.ID, Scope: "legacy",
+				Ref: ref, Outcome: "fail", Finding: &f,
+			})
+		}
 	}
 	return report
+}
+
+// subjectsForScope enumerates every Subject of the given scope on
+// the current disk. DiskScope yields one DiskSubject; SlotScope
+// yields 80 SlotSubjects (every dir entry, used or erased).
+// ChainStepScope is not yet implemented — rules that need per-step
+// iteration should declare SlotScope and walk the chain internally.
+func (ctx *CheckContext) subjectsForScope(scope SubjectScope) []Subject {
+	switch scope {
+	case DiskScope:
+		return []Subject{&DiskSubject{Journal: ctx.Journal, Disk: ctx.Disk, Dialect: ctx.Dialect}}
+	case SlotScope:
+		out := make([]Subject, 0, 80)
+		for i := 0; i < 80; i++ {
+			fe := (*ctx.Journal)[i]
+			out = append(out, &SlotSubject{SlotIndex: i, FileEntry: fe, Disk: ctx.Disk, Journal: ctx.Journal})
+		}
+		return out
+	}
+	return nil
 }
 
 // ruleAppliesToDialect reports whether rule should run when the
