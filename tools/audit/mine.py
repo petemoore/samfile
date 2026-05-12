@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 import traceback
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -313,6 +314,220 @@ def report_high_confidence(checks: pd.DataFrame) -> None:
     print(f"wrote {OUT / 'high-confidence-patterns.md'} ({len(df)} candidates)")
 
 
+def report_recommendations(checks: pd.DataFrame) -> None:
+    """For each rule with fail-rate >= 5% AND >= 50 distinct disks (or
+    >= 50% AND >= 5 disks for narrow rules), synthesise:
+
+    - top failure-message frequency table
+    - dialect × outcome breakdown
+    - file_type × outcome breakdown
+    - top conditional-fail-rate slices (cond - baseline > 30pp or cond
+      in {0%, 100%}) on support >= 10 disks
+    - the rule's per-disk co-fire ranking (top other rules that fire on
+      the same disks where this rule fires) at Jaccard >= 0.3
+
+    The output is intentionally one section per rule so the discovery
+    loop can read top-to-bottom and act without ad-hoc SQL.
+    """
+    # Resolve each rule's dominant severity from its fail rows.
+    sev_by_rule = (
+        checks[checks["outcome"] == "fail"]
+        .groupby("rule_id")["severity"]
+        .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else "")
+        .to_dict()
+    )
+
+    # Per-rule fail-rate ranking (so we surface the priority list at top).
+    rule_summary = []
+    for rule_id, grp in checks.groupby("rule_id"):
+        applicable = grp[grp["outcome"].isin(["pass", "fail"])]
+        n = len(applicable)
+        if n == 0:
+            continue
+        fails = (applicable["outcome"] == "fail").sum()
+        disks = applicable.loc[applicable["outcome"] == "fail", "disk"].nunique()
+        rule_summary.append({
+            "rule_id": rule_id,
+            "severity": sev_by_rule.get(rule_id, ""),
+            "applies": n,
+            "fails": int(fails),
+            "fail_rate": fails / n,
+            "disks": int(disks),
+        })
+    summary_df = pd.DataFrame(rule_summary).sort_values("fail_rate", ascending=False)
+
+    # Disks per rule, for co-fire computation.
+    disks_per_rule = (
+        checks[checks["outcome"] == "fail"]
+        .groupby("rule_id")["disk"].apply(set).to_dict()
+    )
+
+    # Which rules deserve a full section?
+    actionable = summary_df[
+        ((summary_df["fail_rate"] >= 0.05) & (summary_df["disks"] >= 50))
+        | ((summary_df["fail_rate"] >= 0.5) & (summary_df["disks"] >= 5))
+    ]
+    # Drop rules whose severity is already cosmetic — those have been
+    # explicitly classified as low-priority. Keep blank-severity rows
+    # (rules with zero fails — they have no actionable signal anyway).
+    actionable = actionable[actionable["severity"] != "cosmetic"]
+
+    md = [
+        "# Rule-fix recommendations",
+        "",
+        "Each section is a candidate for the autonomous fix loop. Sections appear when:",
+        "",
+        "- fail-rate ≥ 5% AND ≥ 50 distinct disks affected, OR",
+        "- fail-rate ≥ 50% AND ≥ 5 distinct disks affected.",
+        "",
+        "Rules already classified `cosmetic` are excluded (low-priority by design).",
+        "",
+        "Before acting on any section, source-ground the hypothesis in samdos source",
+        "(`~/git/samdos/src/`), ROM disasm",
+        "(`~/git/sam-aarch64/docs/sam/sam-coupe_rom-v3.0_annotated-disassembly.txt`),",
+        "or samfile itself. Sections that can't be source-grounded belong in",
+        "`needs-human.md`, not in a commit.",
+        "",
+        "## Priority list",
+        "",
+        "| Rule | Severity | Fails | Applies | Fail-rate | Disks |",
+        "|---|---|---:|---:|---:|---:|",
+    ]
+    for _, r in actionable.iterrows():
+        md.append(
+            f"| `{r.rule_id}` | {r.severity} | {r.fails} | {r.applies} | {r.fail_rate*100:.1f}% | {r.disks} |"
+        )
+    md.append("")
+    md.append("---")
+    md.append("")
+
+    for _, r in actionable.iterrows():
+        rule_id = r.rule_id
+        md.append(f"## `{rule_id}`")
+        md.append("")
+        md.append(
+            f"- Severity: **{r.severity}** · applies={r.applies} · fails={r.fails} ({r.fail_rate*100:.1f}%) · disks={r.disks}"
+        )
+        md.append("")
+
+        rule_checks = checks[checks["rule_id"] == rule_id]
+        rule_fails = rule_checks[rule_checks["outcome"] == "fail"]
+        rule_app = rule_checks[rule_checks["outcome"].isin(["pass", "fail"])]
+
+        # 1. Top messages.
+        msgs = (
+            rule_fails["message"].value_counts().head(10)
+        )
+        if not msgs.empty:
+            md.append("**Top failure messages:**")
+            md.append("")
+            md.append("| Count | Message |")
+            md.append("|---:|---|")
+            for msg, n in msgs.items():
+                msg_disp = (str(msg) or "").replace("|", "\\|")[:200]
+                md.append(f"| {n} | {msg_disp} |")
+            md.append("")
+
+        # 2. Dialect breakdown — pull from disks table.
+        disk_dialect = (
+            checks.dropna(subset=["dialect"])
+            .groupby("disk")["dialect"].first()
+            .to_dict()
+        )
+        if disk_dialect:
+            tally: Counter = Counter()
+            base: Counter = Counter()
+            for _, ev in rule_app.iterrows():
+                d = disk_dialect.get(ev["disk"])
+                if d is None:
+                    continue
+                base[d] += 1
+                if ev["outcome"] == "fail":
+                    tally[d] += 1
+            if base:
+                md.append("**Outcome by dialect:**")
+                md.append("")
+                md.append("| Dialect | Applies | Fails | Fail-rate |")
+                md.append("|---|---:|---:|---:|")
+                for d in sorted(base):
+                    n = base[d]
+                    f = tally.get(d, 0)
+                    md.append(f"| {d} | {n} | {f} | {100*f/n:.1f}% |")
+                md.append("")
+
+        # 3. File-type breakdown.
+        if "file_type" in rule_app.columns and rule_app["file_type"].notna().any():
+            ftt = (
+                rule_app.groupby("file_type")["outcome"]
+                .apply(lambda s: (len(s), (s == "fail").sum()))
+            )
+            md.append("**Outcome by file_type:**")
+            md.append("")
+            md.append("| file_type | Applies | Fails | Fail-rate |")
+            md.append("|---|---:|---:|---:|")
+            for ft, (n, f) in ftt.items():
+                if not ft:
+                    continue
+                md.append(f"| {ft} | {n} | {f} | {100*f/n:.1f}% |")
+            md.append("")
+
+        # 4. Conditional fail-rate slices (other attributes).
+        baseline = (rule_app["outcome"] == "fail").mean()
+        slices = []
+        for col in ATTR_COLS:
+            if col in ("file_type", "dialect"):
+                continue  # already covered above
+            if col not in rule_app.columns or rule_app[col].isna().all():
+                continue
+            for val, sub in rule_app.groupby(col):
+                support_disks = sub["disk"].nunique()
+                if support_disks < 10:
+                    continue
+                cond = (sub["outcome"] == "fail").mean()
+                delta = cond - baseline
+                if cond in (0.0, 1.0) or abs(delta) > 0.3:
+                    slices.append((col, str(val), support_disks, baseline, cond, delta))
+        slices.sort(key=lambda s: -abs(s[5]))
+        if slices:
+            md.append("**Conditional fail-rate slices (|Δ| > 30pp or cond ∈ {0%, 100%}, ≥ 10 disks):**")
+            md.append("")
+            md.append("| Attribute | Value | Support (disks) | Baseline | Conditional | Δ |")
+            md.append("|---|---|---:|---:|---:|---:|")
+            for col, val, sd, bl, cn, dl in slices[:15]:
+                md.append(f"| {col} | {val} | {sd} | {bl*100:.1f}% | {cn*100:.1f}% | {dl*100:+.1f}pp |")
+            md.append("")
+
+        # 5. Co-fire ranking.
+        my_disks = disks_per_rule.get(rule_id, set())
+        if my_disks:
+            cofires = []
+            for other, other_disks in disks_per_rule.items():
+                if other == rule_id:
+                    continue
+                intersect = len(my_disks & other_disks)
+                union = len(my_disks | other_disks)
+                if union == 0:
+                    continue
+                jaccard = intersect / union
+                if jaccard >= 0.3 and intersect >= 5:
+                    cofires.append((other, intersect, len(other_disks), jaccard))
+            cofires.sort(key=lambda x: -x[3])
+            if cofires:
+                md.append(f"**Co-firing rules** (Jaccard ≥ 0.3, ≥ 5 shared disks; this rule fires on {len(my_disks)} disks):")
+                md.append("")
+                md.append("| Other rule | Shared disks | Other rule total | Jaccard |")
+                md.append("|---|---:|---:|---:|")
+                for other, inter, total, j in cofires[:10]:
+                    md.append(f"| `{other}` | {inter} | {total} | {j:.2f} |")
+                md.append("")
+
+        md.append("---")
+        md.append("")
+
+    (OUT / "recommendations.md").write_text("\n".join(md) + "\n")
+    print(f"wrote {OUT / 'recommendations.md'} ({len(actionable)} actionable rules)")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     checks = load_checks()
@@ -326,6 +541,7 @@ def main() -> None:
         (report_high_confidence, "high-confidence-patterns.md"),
         (report_disk_clusters, "disk-clusters.md"),
         (report_patterns, "patterns.md"),
+        (report_recommendations, "recommendations.md"),
     ]:
         try:
             fn(checks)
