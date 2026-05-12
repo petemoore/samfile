@@ -286,9 +286,15 @@ def report_high_confidence(checks: pd.DataFrame) -> None:
                     "conditional_fail_rate": cond,
                     "baseline_fail_rate": baseline,
                 })
-    df = pd.DataFrame(rows).sort_values(
-        ["conditional_fail_rate", "support_disks"], ascending=[False, False]
-    )
+    if rows:
+        df = pd.DataFrame(rows).sort_values(
+            ["conditional_fail_rate", "support_disks"], ascending=[False, False]
+        )
+    else:
+        df = pd.DataFrame(columns=[
+            "rule_id", "attribute", "value", "support_events",
+            "support_disks", "conditional_fail_rate", "baseline_fail_rate",
+        ])
     md = [
         "# High-confidence patterns (act-on candidates)",
         "",
