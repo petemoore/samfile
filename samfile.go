@@ -48,7 +48,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"runtime/debug"
 	"strings"
 
 	"github.com/petemoore/samfile/v3/sambasic"
@@ -387,7 +386,6 @@ func (di *DiskImage) Save(filename string) error {
 // falls in the invalid gap 80–127 or above 207.
 func (i *DiskImage) SectorData(sector *Sector) (*SectorData, error) {
 	if sector.Sector < 1 || sector.Sector > 10 {
-		debug.PrintStack()
 		return nil, fmt.Errorf("sector out of range: %v", sector.Sector)
 	}
 	if (sector.Track >= 80 && sector.Track < 128) || sector.Track >= 208 {
