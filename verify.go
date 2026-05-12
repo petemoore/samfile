@@ -10,6 +10,12 @@ import "fmt"
 // the raw int.
 type Severity int
 
+// MarshalJSON renders Severity as its lowercase name (cosmetic /
+// inconsistency / structural / fatal) so JSONL output is readable.
+func (s Severity) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + s.String() + `"`), nil
+}
+
 const (
 	SeverityCosmetic Severity = iota
 	SeverityInconsistency
