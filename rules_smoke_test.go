@@ -8,8 +8,8 @@ import (
 // new rules are added or removed so the test surfaces accidental
 // changes to the registry size.
 func TestRegistryGrowth(t *testing.T) {
-	if got := len(Rules()); got != 47 {
-		t.Errorf("len(Rules()) = %d; want 47 (1 smoke + 19 phase-3 + 15 phase-4 + 12 phase-5 rules)", got)
+	if got := len(Rules()); got != 51 {
+		t.Errorf("len(Rules()) = %d; want 51 (1 smoke + 19 phase-3 + 15 phase-4 + 12 phase-5 + 4 phase-6 rules)", got)
 	}
 }
 

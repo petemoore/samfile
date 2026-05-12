@@ -15,11 +15,26 @@ import (
 // disk built in-memory with one CODE file. Expected: DISK-NOT-EMPTY
 // does not fire; output reports no findings; exit code (returned
 // as nil error) is clean.
+//
+// Phase 6: BOOT-SIGNATURE-AT-256 requires T4S1 bytes 256-259 to spell
+// "BOOT" and BOOT-ENTRY-POINT-AT-9 requires a plausible Z80 opcode at
+// sector offset 9, so we patch those bytes after AddCodeFile.
 func TestVerifyCmdOnPopulatedDisk(t *testing.T) {
 	di := samfile.NewDiskImage()
 	if err := di.AddCodeFile("F", []byte("hello"), 0x8000, 0); err != nil {
 		t.Fatalf("AddCodeFile: %v", err)
 	}
+	// Patch the boot sector so §11 rules pass: "BOOT" at bytes 256-259
+	// and a real Z80 opcode (0xC3 = JP nn) at sector offset 9.
+	first := di.DiskJournal()[0].FirstSector
+	sd, err := di.SectorData(first)
+	if err != nil {
+		t.Fatalf("SectorData: %v", err)
+	}
+	copy(sd[256:260], []byte{'B', 'O', 'O', 'T'})
+	sd[9] = 0xC3 // JP nn — a plausible boot-code entry opcode
+	di.WriteSector(first, sd)
+
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "test.mgt")
 	if err := di.Save(imgPath); err != nil {
@@ -36,8 +51,12 @@ func TestVerifyCmdOnPopulatedDisk(t *testing.T) {
 }
 
 // TestVerifyCmdOnEmptyDisk runs against an empty disk. Expected:
-// DISK-NOT-EMPTY fires; output mentions the rule ID; error is nil
-// (inconsistency does not gate exit code).
+// DISK-NOT-EMPTY fires; output mentions the rule ID.
+//
+// Phase 6: BOOT-OWNER-AT-T4S1 (fatal) also fires on an empty disk
+// because no used slot owns T4S1. runVerify therefore returns an
+// error. The test checks the output for DISK-NOT-EMPTY but does not
+// assert that error is nil.
 func TestVerifyCmdOnEmptyDisk(t *testing.T) {
 	di := samfile.NewDiskImage()
 	dir := t.TempDir()
@@ -46,20 +65,26 @@ func TestVerifyCmdOnEmptyDisk(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	stdout, err := captureVerify(t, imgPath)
-	if err != nil {
-		t.Fatalf("Verify returned error: %v", err)
-	}
+	stdout, _ := captureVerify(t, imgPath)
 	if !strings.Contains(stdout, "DISK-NOT-EMPTY") {
 		t.Errorf("expected 'DISK-NOT-EMPTY' in output; got:\n%s", stdout)
 	}
 }
 
 // TestVerifyCmdOnFatalFinding exercises the fatal-findings exit
-// path in runVerify. Phase 1's only rule is severity
+// path in runVerify. Phase 1's only rule was severity
 // Inconsistency, so this test registers a synthetic fatal rule,
 // then confirms runVerify returns a non-nil error mentioning
 // "fatal".
+//
+// Phase 6 note: the toy disk built below has no "BOOT" signature
+// at T4S1 byte 256, so BOOT-SIGNATURE-AT-256 (fatal) also fires.
+// The test stays correct — it only asserts that runVerify returns
+// an error containing "fatal", not that TEST-FATAL is the only
+// fatal — but the synthetic TEST-FATAL rule is no longer the
+// sole contributor. If a future refactor patches BOOT bytes onto
+// this fixture, the test would silently lose its independent
+// signal for runVerify's fatal-exit path.
 //
 // Caveat: the rule registry is package-private to samfile and
 // exposes no Unregister. We can only call samfile.Register
