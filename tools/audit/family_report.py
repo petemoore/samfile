@@ -43,35 +43,56 @@ DB = Path.home() / "sam-corpus" / "findings.db"
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--rank", type=int, default=1)
-    ap.add_argument("--head", type=str, default=None)
-    ap.add_argument("--threshold", type=float, default=1.5)
+    ap.add_argument("--rank", type=int, default=1,
+                    help="family rank to inspect (1 = top, default). Ignored if --head or --strict-sha is set.")
+    ap.add_argument("--head", type=str, default=None,
+                    help="family-head SHA prefix to inspect (uses --threshold clustering).")
+    ap.add_argument("--strict-sha", type=str, default=None,
+                    help="exact slot-0 SHA prefix; report on disks with EXACTLY this SHA, no clustering. "
+                         "Use this to test whether convention rules fire even within a single-build cohort.")
+    ap.add_argument("--threshold", type=float, default=1.5,
+                    help="family-membership %% threshold (only used without --strict-sha).")
     args = ap.parse_args()
 
-    print(f"clustering corpus into families at threshold {args.threshold}% ...")
+    print(f"collecting slot-0 variants ...")
     variants = collect_variants()
-    families = cluster_into_families(variants, args.threshold)
 
-    family_list = []
-    for head, vs in families.items():
-        disks: list[str] = []
-        for h in vs:
-            disks.extend(variants[h]["disks"])
-        family_list.append({"head": head, "disks": disks})
-    family_list.sort(key=lambda f: -len(f["disks"]))
-
-    if args.head:
-        target = next((f for f in family_list if f["head"].startswith(args.head)), None)
-        if target is None:
-            sys.exit(f"no family with head SHA prefix {args.head!r}")
+    if args.strict_sha:
+        # No clustering: take disks whose slot-0 SHA exactly matches.
+        matches = [h for h in variants if h.startswith(args.strict_sha)]
+        if not matches:
+            sys.exit(f"no slot-0 SHA matches prefix {args.strict_sha!r}")
+        if len(matches) > 1:
+            print("multiple matching SHAs — pick a longer prefix:")
+            for h in matches[:10]:
+                print(f"  {h}  {len(variants[h]['disks'])} disks")
+            sys.exit(1)
+        head = matches[0]
+        family_disks = set(variants[head]["disks"])
+        mode_label = f"strict-SHA cohort `{head}`"
+        print(f"strict-SHA mode: head={head}, {len(family_disks)} disks (no clustering)")
     else:
-        if args.rank < 1 or args.rank > len(family_list):
-            sys.exit(f"--rank out of range; only {len(family_list)} families")
-        target = family_list[args.rank - 1]
-
-    head = target["head"]
-    family_disks = set(target["disks"])
-    print(f"target family: head={head}, {len(family_disks)} disks")
+        print(f"clustering corpus into families at threshold {args.threshold}% ...")
+        families = cluster_into_families(variants, args.threshold)
+        family_list = []
+        for h_head, vs in families.items():
+            disks: list[str] = []
+            for h in vs:
+                disks.extend(variants[h]["disks"])
+            family_list.append({"head": h_head, "disks": disks})
+        family_list.sort(key=lambda f: -len(f["disks"]))
+        if args.head:
+            target = next((f for f in family_list if f["head"].startswith(args.head)), None)
+            if target is None:
+                sys.exit(f"no family with head SHA prefix {args.head!r}")
+        else:
+            if args.rank < 1 or args.rank > len(family_list):
+                sys.exit(f"--rank out of range; only {len(family_list)} families")
+            target = family_list[args.rank - 1]
+        head = target["head"]
+        family_disks = set(target["disks"])
+        mode_label = f"family `{head}` (threshold {args.threshold}%)"
+        print(f"family mode: head={head}, {len(family_disks)} disks")
     print()
 
     if not DB.exists():
@@ -135,31 +156,36 @@ def main() -> None:
     rows.sort(key=lambda r: -(r["fam_fail_rate"] or -1))
 
     md = [
-        f"# Per-rule coverage on DOS family `{head}`",
+        f"# Per-rule coverage on {mode_label}",
         "",
         f"This report restricts the audit pipeline's `checks` table to",
-        f"the {len(family_disks)} disks in this family and recomputes",
-        f"per-rule pass/fail rates. Compare the **family fail-rate**",
+        f"the {len(family_disks)} disks in this cohort and recomputes",
+        f"per-rule pass/fail rates. Compare the **cohort fail-rate**",
         f"column to the **all-corpus fail-rate**: if a rule was calibrated",
-        f"against this DOS, the family fail-rate should be at or near 0%.",
+        f"against this DOS, the cohort fail-rate should be at or near 0%.",
         f"",
-        f"Rules where the family fail-rate is materially > 0% are either:",
+        f"Rules where the cohort fail-rate is materially > 0% are either:",
         f"",
         f"- genuinely buggy / over-strict on this DOS itself, or",
         f"- catching real corruption / writer bugs on the specific disks",
-        f"  in this family.",
+        f"  in this cohort.",
+        "",
+        f"With `--strict-sha`, the cohort contains only disks whose slot-0",
+        f"body matches a single exact SHA — no clustering. This is the",
+        f"falsifiable test for whether a 'convention' rule is enforced by",
+        f"a single SAMDOS-2 build: if it fires in this cohort, the build",
+        f"itself doesn't enforce it.",
         "",
         f"## Summary",
         "",
-        f"- **Family head SHA:** `{head}`",
-        f"- **Disks in family:** {len(family_disks)}",
-        f"- **Membership threshold:** {args.threshold:.1f}% byte-diff",
-        f"- **Rules with ≥ 1 family fail:** {sum(1 for r in rows if r['fam_fails'] > 0)}",
-        f"- **Rules with 0 family fails (clean):** {sum(1 for r in rows if r['fam_applies'] > 0 and r['fam_fails'] == 0)}",
+        f"- **Cohort:** {mode_label}",
+        f"- **Disks in cohort:** {len(family_disks)}",
+        f"- **Rules with ≥ 1 cohort fail:** {sum(1 for r in rows if r['fam_fails'] > 0)}",
+        f"- **Rules with 0 cohort fails (clean):** {sum(1 for r in rows if r['fam_applies'] > 0 and r['fam_fails'] == 0)}",
         "",
-        "## Table (sorted by family fail-rate, desc)",
+        "## Table (sorted by cohort fail-rate, desc)",
         "",
-        "| Rule | Severity | Family applies | Family fails | Family % | All-corpus % | Δ |",
+        "| Rule | Severity | Cohort applies | Cohort fails | Cohort % | All-corpus % | Δ |",
         "|---|---|---:|---:|---:|---:|---:|",
     ]
     for r in rows:
@@ -173,7 +199,8 @@ def main() -> None:
             f"| `{r['rule']}` | {r['severity']} | {r['fam_applies']} | {r['fam_fails']} | {fam} | {alc} | {delta} |"
         )
 
-    out = REPO_DOCS / f"family-coverage-{head}.md"
+    suffix = f"-strict-{head}" if args.strict_sha else f"-{head}"
+    out = REPO_DOCS / f"family-coverage{suffix}.md"
     out.write_text("\n".join(md) + "\n")
     print(f"wrote {out}")
     print()
