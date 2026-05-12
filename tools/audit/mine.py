@@ -255,6 +255,58 @@ def report_patterns(checks: pd.DataFrame) -> None:
     print(f"wrote {OUT / 'patterns.md'}")
 
 
+def report_high_confidence(checks: pd.DataFrame) -> None:
+    """Distill conditional fail-rates into the high-confidence action
+    list: every (rule, attribute, value) where conditional fail-rate
+    is 0% or 100% on support ≥ 10 distinct disks. These are the
+    patterns the spec's autonomous fix loop is allowed to act on
+    (after source-grounding)."""
+    rows = []
+    for rule_id, grp in checks.groupby("rule_id"):
+        applicable = grp[grp["outcome"].isin(["pass", "fail"])]
+        if len(applicable) < 10:
+            continue
+        baseline = (applicable["outcome"] == "fail").mean()
+        for col in ATTR_COLS:
+            if col not in applicable.columns or applicable[col].isna().all():
+                continue
+            for val, sub in applicable.groupby(col):
+                support_disks = sub["disk"].nunique()
+                if support_disks < 10:
+                    continue
+                cond = (sub["outcome"] == "fail").mean()
+                if cond not in (0.0, 1.0):
+                    continue
+                rows.append({
+                    "rule_id": rule_id,
+                    "attribute": col,
+                    "value": str(val),
+                    "support_events": len(sub),
+                    "support_disks": support_disks,
+                    "conditional_fail_rate": cond,
+                    "baseline_fail_rate": baseline,
+                })
+    df = pd.DataFrame(rows).sort_values(
+        ["conditional_fail_rate", "support_disks"], ascending=[False, False]
+    )
+    md = [
+        "# High-confidence patterns (act-on candidates)",
+        "",
+        "Each row is a (rule, attribute, value) slice where the conditional fail-rate is 0% or 100% on support ≥ 10 distinct disks. These meet the statistical half of the spec's act-on threshold; before acting on any one, ground it in source code (samdos / ROM disasm / samfile) per the design spec.",
+        "",
+        "| Rule | Attribute | Value | Conditional fail-rate | Baseline | Support (disks) | Support (events) |",
+        "|---|---|---|---:|---:|---:|---:|",
+    ]
+    for _, r in df.iterrows():
+        md.append(
+            f"| `{r.rule_id}` | {r.attribute} | {r.value} | {r.conditional_fail_rate*100:.0f}% | {r.baseline_fail_rate*100:.1f}% | {r.support_disks} | {r.support_events} |"
+        )
+    if df.empty:
+        md.append("| _no high-confidence patterns surfaced_ | | | | | | |")
+    (OUT / "high-confidence-patterns.md").write_text("\n".join(md) + "\n")
+    print(f"wrote {OUT / 'high-confidence-patterns.md'} ({len(df)} candidates)")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     checks = load_checks()
@@ -265,6 +317,7 @@ def main() -> None:
     # Richer analyses — best-effort.
     for fn, name in [
         (report_conditional, "conditional.md"),
+        (report_high_confidence, "high-confidence-patterns.md"),
         (report_disk_clusters, "disk-clusters.md"),
         (report_patterns, "patterns.md"),
     ]:
