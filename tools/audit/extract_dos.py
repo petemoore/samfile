@@ -53,18 +53,36 @@ def walk_chain(disk: bytes, first_track: int, first_sector: int) -> bytes | None
     return bytes(out)
 
 
-def extract_one(disk_path: Path) -> tuple[str, bytes]:
+def extract_one(disk_path: Path) -> tuple[str, bytes, int, int, int | None]:
+    """Return (sha16, body_bytes, load_address, length, exec_address).
+    Mirrors survey_dos.py's bootstrap-convention extraction: walk
+    slot 0's chain, decode the 9-byte file header for the precise
+    byte count + load address + execution address, return exactly
+    that many bytes (the actual DOS code, no padding)."""
     data = disk_path.read_bytes()
     if len(data) != DISK_SIZE:
         raise SystemExit(f"{disk_path}: not a 819200-byte MGT image")
     slot = data[:ENTRY_SIZE]
     if slot[0] == 0:
         raise SystemExit(f"{disk_path}: slot 0 is erased — no DOS")
-    body = walk_chain(data, slot[0x0D], slot[0x0E])
-    if body is None:
+    chain = walk_chain(data, slot[0x0D], slot[0x0E])
+    if chain is None or len(chain) < 9:
         raise SystemExit(f"{disk_path}: slot 0 chain is malformed")
-    trimmed = body.rstrip(b"\x00\xFF")
-    return hashlib.sha256(trimmed).hexdigest()[:16], trimmed
+    length_mod16k = chain[1] | (chain[2] << 8)
+    page_offset = chain[3] | (chain[4] << 8)
+    exec_div16k = chain[5]
+    exec_mod16k_lo = chain[6]
+    pages = chain[7]
+    start_page = chain[8]
+    length = (length_mod16k & 0x3FFF) | (pages << 14)
+    if length == 0 or 9 + length > len(chain):
+        raise SystemExit(f"{disk_path}: chain shorter than declared body length")
+    body = chain[9 : 9 + length]
+    load_address = ((start_page & 0x1F) + 1) * 0x4000 + (page_offset & 0x3FFF)
+    exec_address: int | None = None
+    if exec_div16k != 0xFF:
+        exec_address = exec_div16k * 0x4000 + exec_mod16k_lo
+    return hashlib.sha256(body).hexdigest()[:16], body, load_address, length, exec_address
 
 
 def main() -> None:
