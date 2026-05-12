@@ -4,6 +4,17 @@ import (
 	"testing"
 )
 
+// TestPhase3RegistryGrowth pins the expected rule count once Phase 3
+// is fully implemented. It will fail in Task 1 (only 1 rule registered)
+// and pass once Tasks 2-6 land the remaining 19 rules. This is a
+// regression gate: if any rule is accidentally removed or never
+// registered, this test fails.
+func TestPhase3RegistryGrowth(t *testing.T) {
+	if got := len(Rules()); got != 20 {
+		t.Errorf("len(Rules()) = %d; want 20 (1 smoke + 19 phase-3 rules)", got)
+	}
+}
+
 func TestDiskNotEmptyRulePositive(t *testing.T) {
 	di := NewDiskImage()
 	if err := di.AddCodeFile("A", []byte("hello"), 0x8000, 0); err != nil {
