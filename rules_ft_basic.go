@@ -288,14 +288,26 @@ func checkBasicStartLineFFDisables(ctx *CheckContext) []Finding {
 		if marker == 0x00 {
 			line := fe.SAMBASICStartLine
 			// Iteration 1 SCOPE: line numbers are 16-bit BE; widen the
-			// accepted range from 1..16383 to 1..65534 (excluding 0xFFFF
-			// which is the no-auto-RUN sentinel). Companion to
-			// BASIC-LINE-NUMBER-BE.
-			if line == 0 || line == 0xFFFF {
+			// accepted range from 1..16383 to full uint16.
+			//
+			// Iteration 2 SCOPE: allow line==0 (the canonical
+			// "SAVE name LINE 0" idiom — ROM's RUN dispatch uses
+			// FNDLINE/NEXT-LINE-GE 0 semantics, which finds the first
+			// line in the program; rom-disasm:6295-6325 confirms the
+			// >=BC walk returns the first line when BC=0). Corpus
+			// iter-2 (2026-05-12): 704 disks across all dialects
+			// (28 samdos2, 23 masterdos, 3 samdos1, 155 unknown)
+			// use this idiom — clearly a deliberate convention, not
+			// a writer bug.
+			//
+			// 0xFFFF (when marker==0x00) is still flagged: it's the
+			// no-auto-RUN sentinel typically paired with marker==0xFF,
+			// so a contradictory pairing is genuinely suspicious.
+			if line == 0xFFFF {
 				findings = append(findings, Finding{
 					RuleID: "BASIC-STARTLINE-FF-DISABLES", Severity: SeverityStructural,
 					Location: SlotLocation(slot, fe.Name.String()),
-					Message:  fmt.Sprintf("BASIC auto-RUN enabled (dir[0xF2]=0x00) but start-line %d is invalid (1..65534; 0xFFFF disables auto-RUN)", line),
+					Message:  fmt.Sprintf("BASIC auto-RUN enabled (dir[0xF2]=0x00) but start-line %d is the no-auto-RUN sentinel (0xFFFF); the marker and the line contradict", line),
 					Citation: "rom-disasm:22136-22141",
 				})
 			}
