@@ -129,25 +129,35 @@ type Rule struct {
 	Description string    // one-line summary, used in human output
 	Citation    string    // file:line of the strongest evidence
 
-	// Legacy single-shot check. Mutually exclusive with CheckSubject.
-	// Kept for rules that haven't been migrated to the per-subject
-	// model. If CheckSubject is non-nil, Check is ignored.
+	// Check is the rule body. Receives a CheckContext, returns the
+	// findings (failures) it detected. Iterates internally over its
+	// universe of subjects. This is the only required field.
 	Check func(ctx *CheckContext) []Finding
 
-	// Scope identifies the per-subject iteration scope when
-	// CheckSubject is set. Ignored for legacy (Check-only) rules.
-	Scope SubjectScope
+	// Applicability declares the subject universe for the rule so
+	// the audit pipeline can compute denominators (pass/fail rates)
+	// and attribute snapshots. Optional — if nil, the rule's
+	// findings are still recorded as fail events, but pass events
+	// are not synthesized (no denominator available).
+	Applicability *RuleApplicability
 
-	// Applies reports whether subject is eligible for this rule. If
-	// nil, the rule applies to all subjects of its Scope. The number
-	// of applicable subjects is the denominator for fail-rate
-	// analysis in the audit pipeline.
-	Applies func(ctx *CheckContext, subject Subject) bool
-
-	// CheckSubject evaluates one applicable subject. Returns nil for
-	// pass, a Finding pointer for fail. The framework calls this once
-	// per applicable subject and emits a CheckEvent for each call.
+	// Scope / Applies / CheckSubject are reserved for future
+	// migration of rules to a fully per-subject signature. None of
+	// the currently-registered rules use these.
+	Scope        SubjectScope
+	Applies      func(ctx *CheckContext, subject Subject) bool
 	CheckSubject func(ctx *CheckContext, subject Subject) *Finding
+}
+
+// RuleApplicability declares the universe of subjects a rule
+// reasons about, so the framework can synthesize pass / n/a events
+// alongside the rule's own fail findings.
+type RuleApplicability struct {
+	Scope SubjectScope
+	// Filter selects which subjects of Scope are applicable. nil =
+	// every subject of the scope. For SlotScope filters typically
+	// gate on file type or used-vs-erased.
+	Filter func(*CheckContext, Subject) bool
 }
 
 // allRules is the package-private registry. Rules register at package
@@ -350,9 +360,52 @@ func (di *DiskImage) verifyInternal(rec *EventRecorder) VerifyReport {
 			}
 			continue
 		}
-		// Legacy path: rule provides Check only.
+		// Run the rule's Check(); always collect its findings.
 		legacyFindings := rule.Check(ctx)
 		report.Findings = append(report.Findings, legacyFindings...)
+		if rec == nil {
+			continue
+		}
+		// Match findings to subjects so we can emit pass / n/a / fail
+		// events with attribute snapshots, if the rule declares
+		// Applicability metadata. Otherwise emit only fail events
+		// (no denominator available).
+		if rule.Applicability != nil {
+			ap := rule.Applicability
+			subjects := ctx.subjectsForScope(ap.Scope)
+			// Index findings by location.Slot (or -1 for disk-wide).
+			findingsBySlot := map[int][]Finding{}
+			for _, f := range legacyFindings {
+				findingsBySlot[f.Location.Slot] = append(findingsBySlot[f.Location.Slot], f)
+			}
+			for _, subj := range subjects {
+				if ap.Filter != nil && !ap.Filter(ctx, subj) {
+					rec.Record(CheckEvent{
+						RuleID: rule.ID, Scope: ap.Scope.String(),
+						Ref: subj.Ref(), Outcome: "not_applicable",
+						Attrs: subj.Attributes(),
+					})
+					continue
+				}
+				slot := slotFromSubject(subj)
+				if fs, ok := findingsBySlot[slot]; ok && len(fs) > 0 {
+					f := fs[0]
+					rec.Record(CheckEvent{
+						RuleID: rule.ID, Scope: ap.Scope.String(),
+						Ref: subj.Ref(), Outcome: "fail",
+						Attrs: subj.Attributes(), Finding: &f,
+					})
+				} else {
+					rec.Record(CheckEvent{
+						RuleID: rule.ID, Scope: ap.Scope.String(),
+						Ref: subj.Ref(), Outcome: "pass",
+						Attrs: subj.Attributes(),
+					})
+				}
+			}
+			continue
+		}
+		// No applicability metadata: emit fail-only events.
 		for i := range legacyFindings {
 			f := legacyFindings[i]
 			ref := "disk"
@@ -366,6 +419,18 @@ func (di *DiskImage) verifyInternal(rec *EventRecorder) VerifyReport {
 		}
 	}
 	return report
+}
+
+// slotFromSubject returns the slot index this Subject refers to,
+// or -1 for disk-scope. Used to match legacy Check findings (which
+// carry Location.Slot) against the subject universe.
+func slotFromSubject(s Subject) int {
+	switch v := s.(type) {
+	case *SlotSubject:
+		return v.SlotIndex
+	default:
+		return -1
+	}
 }
 
 // subjectsForScope enumerates every Subject of the given scope on
