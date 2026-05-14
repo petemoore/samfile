@@ -555,6 +555,9 @@ func lexKeyword(l *lexer) stateFn {
 	if canonical == "BIN" {
 		return lexBinaryDigits
 	}
+	if canonical == "REM" {
+		return lexComment
+	}
 	return lexBodyLoop
 }
 
@@ -633,4 +636,58 @@ func lexString(l *lexer) stateFn {
 			return lexBodyLoop
 		}
 	}
+}
+
+// lexComment consumes the rest of the current line as a single raw
+// itemLiteral (no keyword/number/string tokenisation inside), then
+// hands back to a small finaliser state.
+func lexComment(l *lexer) stateFn {
+	for {
+		r := l.next()
+		if r == eof {
+			// Emit literal here (if any), then return a finaliser that
+			// emits the closing EOL and EOF on subsequent invocations.
+			if l.pos > l.start {
+				l.emit(itemLiteral)
+				return lexCommentEndEOF
+			}
+			l.emit(itemEOL)
+			l.emit(itemEOF)
+			return nil
+		}
+		if r == '\n' || r == '\r' {
+			l.backup()
+			if l.pos > l.start {
+				l.emit(itemLiteral)
+				return lexCommentEndNewline
+			}
+			l.start = l.pos
+			l.startLine = l.line
+			l.startCol = l.col
+			l.next()
+			l.ignore()
+			l.emit(itemEOL)
+			return lexStart
+		}
+	}
+}
+
+// lexCommentEndEOF emits the closing EOL and EOF after a comment that
+// ran to end-of-input.
+func lexCommentEndEOF(l *lexer) stateFn {
+	l.emit(itemEOL)
+	l.emit(itemEOF)
+	return nil
+}
+
+// lexCommentEndNewline consumes the line terminator after a comment
+// body and emits the closing EOL, then returns to lexStart.
+func lexCommentEndNewline(l *lexer) stateFn {
+	l.start = l.pos
+	l.startLine = l.line
+	l.startCol = l.col
+	l.next()
+	l.ignore()
+	l.emit(itemEOL)
+	return lexStart
 }

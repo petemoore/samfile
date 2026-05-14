@@ -578,3 +578,43 @@ func TestLexNumber_Binary(t *testing.T) {
 		})
 	}
 }
+
+func TestLexComment_REM(t *testing.T) {
+	tests := []struct {
+		name     string
+		in       string
+		wantTail []byte
+	}{
+		{"basic", "10 REM hello\n", []byte("hello")},
+		{"with-keyword-inside", "10 REM PRINT \"x\"\n", []byte(`PRINT "x"`)},
+		{"with-quotes-and-numbers", "10 REM \"a\":42\n", []byte(`"a":42`)},
+		{"bare-REM", "10 REM\n", []byte{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			var tail []byte
+			afterREM := false
+			for _, it := range got {
+				if it.typ == itemKeyword && len(it.bytes) == 1 && it.bytes[0] == byte(REM) {
+					afterREM = true
+					continue
+				}
+				if !afterREM {
+					continue
+				}
+				if it.typ == itemEOL {
+					break
+				}
+				if it.bytes != nil {
+					tail = append(tail, it.bytes...)
+				} else {
+					tail = append(tail, []byte(it.val)...)
+				}
+			}
+			if !bytesEqual(tail, tt.wantTail) {
+				t.Errorf("tail = %q, want %q", tail, tt.wantTail)
+			}
+		})
+	}
+}
