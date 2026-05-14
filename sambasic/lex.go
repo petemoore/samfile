@@ -416,16 +416,24 @@ func lexNumber(l *lexer) stateFn {
 	}
 	// Decimal integer / decimal-with-fraction / scientific.
 	const digits = "0123456789"
+	// Integer part: INTTOFP path uses NXCHAR (no skip), so we stop at
+	// the first non-digit (including space).
 	l.acceptRun(digits)
 	if l.peek() == '.' {
 		l.next()
-		l.acceptRun(digits)
+		// Fraction part: CONVFRAC2/CONVFRALP loop uses RST 20H between
+		// digit reads (L17A8), which calls GTCH1/GTCH3 to skip 0x00-0x20.
+		// So spaces between fraction digits are part of the literal's
+		// display form but the parser treats the digit sequence as one
+		// number. (`.0 20` parses as `.020` = 0.02 with display `".0 20"`.)
+		acceptDigitsWithEmbeddedSpaces(l, digits)
 	}
 	if r := l.peek(); r == 'e' || r == 'E' {
 		l.next()
 		if r := l.peek(); r == '+' || r == '-' {
 			l.next()
 		}
+		// Exponent: INTTOFP again at L17C6 — no whitespace absorption.
 		if !l.accept(digits) {
 			return l.errorf("bad number syntax: %q", l.input[l.start:l.pos])
 		}
@@ -436,6 +444,41 @@ func lexNumber(l *lexer) stateFn {
 		return l.errorf("bad number syntax: %q", l.input[l.start:l.pos])
 	}
 	return emitNumberFP(l)
+}
+
+// acceptDigitsWithEmbeddedSpaces consumes a run of digits where one or
+// more spaces may appear between successive digits. The space is part
+// of the literal's display form; the value is the spaces-stripped
+// concatenation of the digits. Used for fraction parts of decimal
+// literals (RST 20H-driven parse path in CONVFRAC2).
+func acceptDigitsWithEmbeddedSpaces(l *lexer, digits string) {
+	for {
+		if l.accept(digits) {
+			continue
+		}
+		// Try absorbing one or more spaces if a digit follows them.
+		if l.peek() != ' ' {
+			break
+		}
+		savedPos := l.pos
+		savedCol := l.col
+		// Consume spaces.
+		for l.pos < len(l.input) && l.input[l.pos] == ' ' {
+			l.pos++
+			l.col++
+		}
+		if l.pos < len(l.input) {
+			c := l.input[l.pos]
+			if c >= '0' && c <= '9' {
+				continue // digit follows; spaces absorbed
+			}
+		}
+		// Space(s) not followed by a digit — back up.
+		l.pos = savedPos
+		l.col = savedCol
+		l.width = 0
+		break
+	}
 }
 
 // emitNumberFP emits an itemNumber whose bytes are the visible

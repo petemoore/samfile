@@ -11,13 +11,28 @@ import (
 // 0..65535 emits {0x00, 0x00, LSB, MSB, 0x00}. Hex literals (`&...`),
 // decimal integers without a fractional part, and scientific notation
 // that evaluates to an integer in 0..65535 all use the fast-path.
-// Task 9 extends this to general FP form for non-integer values.
+//
+// The ROM's parser absorbs whitespace between digits in fraction parts
+// (CONVFRAC2 / CONVFRALP loop at L17A8 uses RST 20H which skips
+// 0x00-0x20), in hex digits (AMPERSAND at L18681 uses RST 20H), and
+// in BIN digits. So `.0 20` parses as value 0.020. The lexer hands
+// us the full literal *with* the embedded spaces; we strip them here
+// before passing to strconv.
 //
 // Cites docs/sambasic-grammar.md §4.3.
 func encodeFP(literal string) ([5]byte, error) {
 	var out [5]byte
 	if literal == "" {
 		return out, fmt.Errorf("empty numeric literal")
+	}
+	// Strip embedded whitespace — the ROM-level value is the digit
+	// sequence concatenated. See doc-comment above for which parse
+	// paths absorb whitespace.
+	if strings.IndexByte(literal, ' ') >= 0 {
+		literal = strings.ReplaceAll(literal, " ", "")
+		if literal == "" {
+			return out, fmt.Errorf("empty numeric literal")
+		}
 	}
 	// Hex: &[0-9A-Fa-f]+
 	if literal[0] == '&' {
