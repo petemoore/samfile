@@ -232,3 +232,39 @@ func TestLexLineNumber(t *testing.T) {
 		})
 	}
 }
+
+func TestLexBody_OneSpaceDrop(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		// literalBytes is what we expect the body to emit before EOL,
+		// represented as the concatenation of every emitted item's val.
+		literalBytes string
+	}{
+		{"no-space-then-X", "10X\n", "X"},
+		{"one-space-X-dropped", "10 X\n", "X"},
+		{"two-spaces-one-dropped", "10  X\n", " X"},
+		{"one-space-bare-preserved", "10 \n", " "},
+		{"bare-no-body", "10\n", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			// Skip itemLineNumber, accumulate val of intervening items
+			// until itemEOL.
+			var body string
+			i := 0
+			for i < len(got) && got[i].typ != itemLineNumber {
+				i++
+			}
+			i++ // past line number
+			for i < len(got) && got[i].typ != itemEOL {
+				body += got[i].val
+				i++
+			}
+			if body != tt.literalBytes {
+				t.Errorf("body = %q, want %q", body, tt.literalBytes)
+			}
+		})
+	}
+}

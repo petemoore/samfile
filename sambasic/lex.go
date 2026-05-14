@@ -229,24 +229,70 @@ func lexLineNumber(l *lexer) stateFn {
 	return lexBody
 }
 
-// lexBody is a stub until Task 3 implements body parsing. For now it just
-// consumes to end-of-line and emits itemEOL.
+// lexBody is entered immediately after itemLineNumber. It applies the
+// post-line-number one-space-drop (grammar spec §2.3) and then dispatches
+// to lexBodyLoop. For now (until later tasks add keyword/number/string/etc.
+// handling), every non-newline byte is emitted as itemLiteral.
 func lexBody(l *lexer) stateFn {
-	for {
-		r := l.next()
-		if r == eof {
-			l.emit(itemEOL)
-			l.emit(itemEOF)
-			return nil
-		}
-		if r == '\n' || r == '\r' {
-			// Don't include the newline in any emitted item.
-			l.backup()
-			l.start = l.pos
-			l.next()
-			l.ignore()
-			l.emit(itemEOL)
-			return lexStart
-		}
+	// One-space-drop: examine the first byte after the line number digits.
+	r := l.next()
+	if r == eof {
+		l.emit(itemEOL)
+		l.emit(itemEOF)
+		return nil
 	}
+	if r == '\n' || r == '\r' {
+		l.backup()
+		l.start = l.pos
+		l.startLine = l.line
+		l.startCol = l.col
+		l.next()
+		l.ignore()
+		l.emit(itemEOL)
+		return lexStart
+	}
+	if r == ' ' {
+		// b1 is space; peek at b2.
+		next := l.peek()
+		if next == '\n' || next == '\r' || next == eof {
+			// b2 is the terminator: PRESERVE this space — emit as literal.
+			l.emit(itemLiteral)
+		} else {
+			// b2 is something else: DROP this space.
+			l.ignore()
+		}
+	} else {
+		// b1 is not a space: emit it as the first body byte.
+		l.backup()
+	}
+	return lexBodyLoop
+}
+
+// lexBodyLoop handles the rest of the body byte-by-byte. Each non-newline
+// byte is emitted as an itemLiteral for now; later tasks replace this with
+// keyword/number/string/etc. dispatch.
+//
+// We return to nextItem after each emit (rather than looping internally) so
+// the inline state-machine driver in nextItem can drain the buffered item
+// channel between emits. An internal for-loop would deadlock on bodies of
+// more than two bytes once the channel buffer fills.
+func lexBodyLoop(l *lexer) stateFn {
+	r := l.next()
+	if r == eof {
+		l.emit(itemEOL)
+		l.emit(itemEOF)
+		return nil
+	}
+	if r == '\n' || r == '\r' {
+		l.backup()
+		l.start = l.pos
+		l.startLine = l.line
+		l.startCol = l.col
+		l.next()
+		l.ignore()
+		l.emit(itemEOL)
+		return lexStart
+	}
+	l.emit(itemLiteral)
+	return lexBodyLoop
 }
