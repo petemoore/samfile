@@ -24,6 +24,54 @@ variation has no functional consequence.
 
 ---
 
+## Ground-truth oracle: `llist-capture`
+
+The SAM ROM's `LLIST` is the authoritative rendering of a SAM BASIC
+program. We can capture it for any corpus file via:
+
+```bash
+~/git/sam-aarch64/tools/llist-capture.sh <source.mgt> <basic-name> [<output.txt>]
+```
+
+The tool builds a one-shot test disk that boots SAMDOS, loads the
+corpus file with auto-RUN forced to a synthesised line at 65279
+which runs `LLIST 1 TO 65278: CALL 16384`. The CALL transfers to
+a 2-byte DI; HALT stub at the top-left of the screen file, which
+makes SimCoupé exit cleanly via `-exitonhalt 1`. Output is captured
+via SimCoupé's parallel-port-to-file mechanism (auto-named
+`simc####.txt` in `~/Documents/SimCoupe/`).
+
+**Decoupling the round-trip:** the captured LLIST output is the
+ground truth for what `samfile basic-to-text` should emit. So
+the round-trip can be split into two independent tests:
+
+  - **`basic-to-text` correctness** — diff `samfile basic-to-text`
+    against the LLIST capture. Tool: `llist-vs-b2t.sh`.
+  - **`text-to-basic` correctness** — feed LLIST output to
+    `samfile text-to-basic` and compare against the original
+    body bytes. (Or use `samfile basic-to-text` output if the
+    detok side is known-clean for this file.)
+
+This lets us locate which side a divergence belongs to, instead
+of always being uncertain whether a corpus-test failure is a
+detok bug or a lexer bug.
+
+### Known differences (not basic-to-text bugs)
+
+When comparing LLIST output to `basic-to-text` output, expect these
+formatting differences that do NOT indicate a basic-to-text bug:
+
+  - **Current-line marker `>`** after the first line number in
+    the LLIST output — SAM's editor shows the "current line" with
+    `>` instead of a trailing space.
+  - **Line wrapping at column ~80** for long lines in LLIST
+    output — printer-width formatting that doesn't affect program
+    semantics.
+
+Anything else is worth investigating.
+
+---
+
 ## Triage process
 
 This is the **single source of truth** for how the round-trip fix
