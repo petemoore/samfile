@@ -215,7 +215,13 @@ func lexStart(l *lexer) stateFn {
 }
 
 // lexLineNumber consumes a decimal digit run and emits itemLineNumber.
-// Range: 1..0xFEFF (65279). Line 0 is reserved.
+// Range: 0..0xFEFF (65279).
+//
+// Note: the SAM editor rejects line 0 at input time (per grammar
+// spec §2.3 / SimCoupé empirical), but the on-disk 16-bit field
+// can store any 0..0xFEFF value. The corpus contains programs
+// with line 0 (likely from tools that bypass the editor), so the
+// lexer accepts the full range to enable round-trip.
 func lexLineNumber(l *lexer) stateFn {
 	const digits = "0123456789"
 	if !l.accept(digits) {
@@ -231,9 +237,6 @@ func lexLineNumber(l *lexer) stateFn {
 		if n > 0xFFFF {
 			return l.errorf("line number out of range: %s", text)
 		}
-	}
-	if n == 0 {
-		return l.errorf("line number 0 is reserved")
 	}
 	if n > 0xFEFF {
 		return l.errorf("line number out of range: %s", text)

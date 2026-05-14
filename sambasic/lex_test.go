@@ -200,7 +200,9 @@ func TestLexLineNumber(t *testing.T) {
 			name: "zero",
 			in:   "0\n",
 			want: []item{
-				{typ: itemError, val: "line number 0 is reserved"},
+				{typ: itemLineNumber, val: "0"},
+				{typ: itemEOL},
+				{typ: itemEOF},
 			},
 		},
 		{
