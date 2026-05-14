@@ -315,17 +315,18 @@ func (s *outputState) handleByte(b byte, data []byte, offset, n uint32, remainin
 			return 0, nil
 		case b < 0x20:
 			return s.handleControl(b, data, offset, remaining)
-		case s.lossy && b >= 0xA9 && b <= 0xFE:
+		case s.lossy && b >= 0xA9:
 			// POFUDG at ROM 0xDDB4 — inside a string literal (INQUFG=1),
-			// bytes 0xA9..0xFE get SUB 0xA9 before reaching the printer
+			// bytes 0xA9..0xFF get SUB 0xA9 before reaching the printer
 			// via OPCHAR. The SAM ROM path is PRGR80 → POUDGH → POUDG
 			// (DEVICE=2, LPRTV=0 no-op) → PUDGS → POFUDG → SUB 0xA9 →
 			// POUDG1 → PRINTMN1 → IOPENT stores OPCHAR = post-SUB value
 			// → ENDOUTP → ENDOP2 → CHBOP sends OPCHAR to channel B →
 			// SENDA → port out. Empirically: byte 0xE9 (BOOT) inside a
-			// string emits as 0x40 (`@`) on the printer; byte 0xFE
-			// would emit as 0x55 (`U`). Verified against SAM81 line
-			// 130 on B-DOS V1.7D.
+			// string emits as 0x40 (`@`) on the printer; byte 0xFF
+			// emits as 0x56 (`V`) — verified against ENCELADUS Issue 01
+			// DESIGNER/DISTORTER/NASTY and HORSE files (0xFF inside
+			// "..." strings).
 			//
 			// Bytes 0x85..0xA8 inside strings pass through as-is
 			// (block-graphics path at DD99 and UDG path at DDB8 leave
