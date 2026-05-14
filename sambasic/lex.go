@@ -659,8 +659,11 @@ func matchKeyword(input, name string) (int, bool) {
 }
 
 // checkWordBoundary enforces that the byte after the matched keyword is
-// not a continuation of a longer identifier. Skips the check when the
-// keyword's last char is `$`, `=`, or `>` (per GTTOK6).
+// not a continuation of a longer identifier. Per ROM GTTOK6 (L20077–
+// L20082), the trailing byte must NOT be a letter, `_`, or `$` (the
+// check is done via ALDU at L13653: "CY if letter or underline or $").
+// Skips the check when the keyword's last char is `$`, `=`, or `>`
+// (those keywords are exempt — bypass the trailing-letter check).
 func checkWordBoundary(input string, end int, name string) bool {
 	if end >= len(input) {
 		return true
@@ -677,6 +680,9 @@ func checkWordBoundary(input string, end int, name string) bool {
 		return false
 	}
 	if next == '_' {
+		return false
+	}
+	if next == '$' {
 		return false
 	}
 	return true

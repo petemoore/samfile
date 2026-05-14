@@ -960,6 +960,51 @@ func TestLexRelop_OperatorKeywords(t *testing.T) {
 	}
 }
 
+// TestLexKeyword_TrailingDollarRejects covers GTTOK6 / ALDU's
+// rejection of a keyword match when the byte immediately after the
+// matched word is `$`. Per grammar §3.3: "the routine looks at the
+// input character immediately past the matched word ... requires the
+// trailing input character to be not a letter, not _, not $." So
+// `SCROLL$` is NOT tokenised — it's stored as 7 literal bytes.
+func TestLexKeyword_TrailingDollarRejects(t *testing.T) {
+	// `SCROLL$` as a bare expression-context identifier (after LET so
+	// statement-initial doesn't switch to PROC handling).
+	got := collectItems("10 LET x=SCROLL$\n")
+	var body []byte
+	i := 0
+	for i < len(got) && got[i].typ != itemLineNumber {
+		i++
+	}
+	i++
+	for i < len(got) && got[i].typ != itemEOL {
+		if got[i].bytes != nil {
+			body = append(body, got[i].bytes...)
+		} else {
+			body = append(body, []byte(got[i].val)...)
+		}
+		i++
+	}
+	// Must NOT contain 0xE6 (SCROLL keyword byte).
+	for _, b := range body {
+		if b == 0xE6 {
+			t.Errorf("SCROLL$ was wrongly tokenised: body = % X", body)
+			return
+		}
+	}
+	// Should contain the literal text 'SCROLL$'.
+	want := []byte("SCROLL$")
+	found := false
+	for j := 0; j+len(want) <= len(body); j++ {
+		if string(body[j:j+len(want)]) == string(want) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected literal 'SCROLL$' in body, got % X", body)
+	}
+}
+
 func TestLexProcCall_Placeholder(t *testing.T) {
 	tests := []struct {
 		name      string
