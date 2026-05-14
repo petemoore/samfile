@@ -383,7 +383,10 @@ func assembleFile(edits map[uint16]Line) *File {
 	return &File{Lines: lines}
 }
 
-// finalise applies SAM's two-pass byte-level patches to a tokenised line:
+// finaliseWithBody applies SAM's two-pass byte-level patches to a
+// tokenised line and returns both the patched Line and the patched body
+// byte slice (so callers such as ParseTextSchema can re-sync schema
+// segment bytes with the rewrites applied):
 //
 //	LIF (0xD7) → SIF (0xD8) iff THEN (0x8D) appears later in the line.
 //	LELSE (0xD9) → ELSE (0xDA) iff THEN appeared earlier.
@@ -395,14 +398,6 @@ func assembleFile(edits map[uint16]Line) *File {
 // at table slot 0xFF — see grammar §3.3) from a 0xFF that introduces a
 // 2-byte keyword pair. Two-byte prefixes are always followed by a byte in
 // 0x3B..0x84 (the 2-byte keyword index range), so we skip those.
-func finalise(line Line) Line {
-	out, _ := finaliseWithBody(line)
-	return out
-}
-
-// finaliseWithBody is like finalise but also returns the patched body
-// byte slice so callers (e.g. ParseTextSchema) can re-sync schema
-// segment bytes with the rewrites finalise applied.
 func finaliseWithBody(line Line) (Line, []byte) {
 	body := flattenTokens(line.Tokens)
 	hasTHEN := false
