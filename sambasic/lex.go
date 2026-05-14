@@ -2,6 +2,7 @@ package sambasic
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -330,6 +331,10 @@ func lexBodyLoop(l *lexer) stateFn {
 	if r >= '0' && r <= '9' {
 		l.backup()
 		return lexNumber
+	}
+	if r == '{' {
+		l.backup()
+		return lexControlEscape
 	}
 	l.emit(itemLiteral)
 	return lexBodyLoop
@@ -690,4 +695,35 @@ func lexCommentEndNewline(l *lexer) stateFn {
 	l.ignore()
 	l.emit(itemEOL)
 	return lexStart
+}
+
+// lexControlEscape parses the {N} sugar where N is a decimal byte value
+// 0..255. Emits itemControlEscape with the single raw byte.
+func lexControlEscape(l *lexer) stateFn {
+	if l.next() != '{' {
+		return l.errorf("lexControlEscape entered without {")
+	}
+	digitStart := l.pos
+	for {
+		r := l.next()
+		if r == eof || r == '\n' || r == '\r' {
+			return l.errorf("unterminated control escape")
+		}
+		if r == '}' {
+			break
+		}
+		if r < '0' || r > '9' {
+			return l.errorf("invalid control escape: %q", l.input[l.start:l.pos])
+		}
+	}
+	digits := l.input[digitStart : l.pos-1] // exclude closing }
+	if digits == "" {
+		return l.errorf("invalid control escape: %q", l.input[l.start:l.pos])
+	}
+	v, err := strconv.ParseUint(digits, 10, 16)
+	if err != nil || v > 255 {
+		return l.errorf("control escape out of range: %s", digits)
+	}
+	l.emitBytes(itemControlEscape, []byte{byte(v)}, l.input[l.start:l.pos])
+	return lexBodyLoop
 }

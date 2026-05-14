@@ -618,3 +618,44 @@ func TestLexComment_REM(t *testing.T) {
 		})
 	}
 }
+
+func TestLexControlEscape(t *testing.T) {
+	tests := []struct {
+		name      string
+		in        string
+		wantBytes []byte
+	}{
+		{"in-body", "10 {7}\n", []byte{0x07}},
+		{"max-255", "10 {255}\n", []byte{0xFF}},
+		{"zero", "10 {0}\n", []byte{0x00}},
+		{"invalid-not-decimal", "10 {abc}\n", nil},
+		{"invalid-out-of-range", "10 {256}\n", nil},
+		{"unterminated", "10 {7\n", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			if tt.wantBytes == nil {
+				if got[len(got)-1].typ != itemError {
+					t.Fatalf("expected itemError, got %v", got)
+				}
+				return
+			}
+			var bytes []byte
+			i := 0
+			for i < len(got) && got[i].typ != itemLineNumber {
+				i++
+			}
+			i++
+			for i < len(got) && got[i].typ != itemEOL {
+				if got[i].bytes != nil {
+					bytes = append(bytes, got[i].bytes...)
+				}
+				i++
+			}
+			if !bytesEqual(bytes, tt.wantBytes) {
+				t.Errorf("bytes = %v, want %v", bytes, tt.wantBytes)
+			}
+		})
+	}
+}
