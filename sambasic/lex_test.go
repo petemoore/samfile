@@ -728,6 +728,68 @@ func TestLexKeyword_NoMidIdentifierKeyword(t *testing.T) {
 	}
 }
 
+// TestLexProcCall_AfterStatementIntroducer covers the rule that
+// certain keywords (THEN, ELSE, ON ERROR) introduce a new statement
+// context, so a bare identifier following them must be treated as a
+// procedure call (6-byte 0E FD FD FD 00 00 placeholder), not as a
+// plain expression-context identifier literal.
+func TestLexProcCall_AfterStatementIntroducer(t *testing.T) {
+	procTail := []byte{0x0E, 0xFD, 0xFD, 0xFD, 0x00, 0x00}
+	tests := []struct {
+		name      string
+		in        string
+		wantBytes []byte
+	}{
+		{
+			name: "ON-ERROR proc",
+			in:   "10 ON ERROR Opt\n",
+			// ON_ERROR (0xDD) + "Opt" + PROC placeholder
+			wantBytes: append([]byte{0xDD, 'O', 'p', 't'}, procTail...),
+		},
+		{
+			name: "THEN proc",
+			in:   "10 IF x THEN Opt\n",
+			// LIF (0xD7) + "x" + THEN (0x8D) + "Opt" + PROC placeholder
+			wantBytes: append([]byte{0xD7, 'x', 0x8D, 'O', 'p', 't'}, procTail...),
+		},
+		{
+			name: "ELSE proc",
+			in:   "10 IF x THEN A: ELSE B\n",
+			// LIF + "x" + THEN + "A"+placeholder + ":" + ELSE + "B"+placeholder.
+			// Lexer emits LELSE (0xD9); LINESCAN may patch to 0xDA — out of scope here.
+			wantBytes: func() []byte {
+				out := []byte{0xD7, 'x', 0x8D, 'A'}
+				out = append(out, procTail...)
+				out = append(out, ':', 0xD9, 'B')
+				out = append(out, procTail...)
+				return out
+			}(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			var body []byte
+			i := 0
+			for i < len(got) && got[i].typ != itemLineNumber {
+				i++
+			}
+			i++
+			for i < len(got) && got[i].typ != itemEOL {
+				if got[i].bytes != nil {
+					body = append(body, got[i].bytes...)
+				} else {
+					body = append(body, []byte(got[i].val)...)
+				}
+				i++
+			}
+			if !bytesEqual(body, tt.wantBytes) {
+				t.Errorf("body = % X, want % X", body, tt.wantBytes)
+			}
+		})
+	}
+}
+
 // TestLexRelop_OperatorKeywords covers the 2-byte operator keywords
 // <>, <=, >= which TOKMAIN matches when CHAD sits on `<` or `>`
 // (grammar §3.2 / §3.3). Standalone `<` or `>` must fall through to a

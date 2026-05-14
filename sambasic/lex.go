@@ -641,7 +641,7 @@ func lexKeyword(l *lexer) stateFn {
 		l.pos++
 		l.col++
 	}
-	l.stmtInitial = false
+	l.stmtInitial = keywordIntroducesStatement(canonical)
 	l.emitBytes(itemKeyword, kwBytes, l.input[l.start:l.pos])
 	if canonical == "BIN" {
 		return lexBinaryDigits
@@ -650,6 +650,26 @@ func lexKeyword(l *lexer) stateFn {
 		return lexComment
 	}
 	return lexBodyLoop
+}
+
+// keywordIntroducesStatement reports whether the given keyword's next
+// non-whitespace input position is the start of a new statement (per
+// LINESCAN's dispatcher — grammar §2.2 and §6.5). When true, a bare
+// identifier appearing next is treated as a procedure call and gets
+// the 6-byte PROC placeholder, not a plain identifier literal.
+//
+// THEN / ELSE: the THEN-branch and ELSE-branch of an IF are each a
+// new statement. Grammar §2.2 notes THEN as a statement separator at
+// run-time / syntax-check time. ELSE follows the same pattern.
+//
+// ON ERROR: the error-handler action is a single statement (often a
+// bare PROC call like `ON ERROR ErrHandler`).
+func keywordIntroducesStatement(canonical string) bool {
+	switch canonical {
+	case "THEN", "ELSE", "ON ERROR":
+		return true
+	}
+	return false
 }
 
 // lexRelop handles a `<` or `>` at the current input position. The SAM
