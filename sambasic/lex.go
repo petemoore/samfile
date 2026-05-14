@@ -307,7 +307,183 @@ func lexBodyLoop(l *lexer) stateFn {
 		l.backup()
 		return lexString
 	}
+	if r == ' ' {
+		// Leading-space-drop: if a keyword starts right after this space,
+		// drop the space (don't emit it).
+		if l.pos < len(l.input) && isAlpha(rune(l.input[l.pos])) {
+			if _, _, _, isKW := lookupKeyword(l.input, l.pos); isKW {
+				l.ignore()
+				return lexBodyLoop
+			}
+		}
+		l.emit(itemLiteral)
+		return lexBodyLoop
+	}
+	if isAlpha(r) {
+		l.backup()
+		return lexKeyword
+	}
 	l.emit(itemLiteral)
+	return lexBodyLoop
+}
+
+func isAlpha(r rune) bool {
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
+}
+
+func isAlphaNum(r rune) bool {
+	return isAlpha(r) || (r >= '0' && r <= '9') || r == '_'
+}
+
+// keywordFold returns the input string with ASCII letters uppercased
+// (the SAM editor's AND 0DFH fold). Non-letter bytes pass through
+// unchanged.
+func keywordFold(s string) string {
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'a' && c <= 'z' {
+			c -= 0x20
+		}
+		b[i] = c
+	}
+	return string(b)
+}
+
+// lookupKeyword tries to match the input starting at pos against the
+// keyword table (zero-or-one space rule for multi-word entries; ASCII
+// case-fold). Returns the matched canonical form, the byte index after
+// the match (in the input string), the keyword bytes to emit, and true
+// if matched. Enforces the word-boundary rule from GTTOK6.
+//
+// On ties (e.g. IF appears at 0xD7 and 0xD8), the first table entry
+// wins because we use a strict `<=` in the bestEnd comparison.
+func lookupKeyword(input string, pos int) (canonical string, endPos int, bytes []byte, ok bool) {
+	folded := keywordFold(input[pos:])
+	bestEnd := 0
+	bestIdx := -1
+	for i, name := range keywordTable {
+		if name == "" {
+			continue
+		}
+		end, matched := matchKeyword(folded, name)
+		if !matched {
+			continue
+		}
+		if end <= bestEnd {
+			continue
+		}
+		if !checkWordBoundary(folded, end, name) {
+			continue
+		}
+		bestEnd = end
+		bestIdx = i
+	}
+	if bestIdx < 0 {
+		return "", pos, nil, false
+	}
+	canonical = keywordTable[bestIdx]
+	endPos = pos + bestEnd
+	keywordByte := byte(0x3B + bestIdx)
+	if keywordByte >= 0x85 {
+		bytes = []byte{keywordByte}
+	} else {
+		bytes = []byte{0xFF, keywordByte}
+	}
+	return canonical, endPos, bytes, true
+}
+
+// matchKeyword returns the byte length matched in input against the
+// keyword name. Spaces in name match zero or one input space.
+func matchKeyword(input, name string) (int, bool) {
+	i := 0
+	for j := 0; j < len(name); j++ {
+		c := name[j]
+		if c == ' ' {
+			if i < len(input) && input[i] == ' ' {
+				i++
+			}
+			continue
+		}
+		if i >= len(input) || input[i] != c {
+			return 0, false
+		}
+		i++
+	}
+	return i, true
+}
+
+// checkWordBoundary enforces that the byte after the matched keyword is
+// not a continuation of a longer identifier. Skips the check when the
+// keyword's last char is `$`, `=`, or `>` (per GTTOK6).
+func checkWordBoundary(input string, end int, name string) bool {
+	if end >= len(input) {
+		return true
+	}
+	lastCh := name[len(name)-1]
+	if lastCh == '$' || lastCh == '=' || lastCh == '>' {
+		return true
+	}
+	next := input[end]
+	if next >= 'A' && next <= 'Z' {
+		return false
+	}
+	if next >= '0' && next <= '9' {
+		return false
+	}
+	if next == '_' {
+		return false
+	}
+	return true
+}
+
+// advanceColOver walks the input bytes from oldPos to newPos updating
+// l.line and l.col so that emit's start-of-token stamp stays sensible
+// after a keyword match that jumped pos directly.
+func (l *lexer) advanceColOver(oldPos, newPos int) {
+	for i := oldPos; i < newPos; i++ {
+		if l.input[i] == '\n' {
+			l.line++
+			l.col = 1
+		} else {
+			l.col++
+		}
+	}
+}
+
+// lexKeyword scans an alphabetic run and tries to tokenise it as a
+// keyword. On match: emits itemKeyword with the resolved bytes and
+// applies the one-trailing-space drop. The one-leading-space drop is
+// handled in lexBodyLoop by NOT emitting a single space when followed
+// by a keyword.
+//
+// On no-match: emits the next single byte of the alphabetic run as
+// itemLiteral and returns self (to preserve the yield-after-emit rule)
+// until the run is exhausted. Task 14 will replace this with
+// bare-identifier handling.
+func lexKeyword(l *lexer) stateFn {
+	canonical, endPos, kwBytes, ok := lookupKeyword(l.input, l.pos)
+	if !ok {
+		// Not a keyword: emit one byte and return self until run is
+		// exhausted. This preserves the yield-after-emit rule.
+		l.next()
+		l.emit(itemLiteral)
+		if r := l.peek(); r != eof && isAlphaNum(r) {
+			return lexKeyword
+		}
+		return lexBodyLoop
+	}
+	_ = canonical // not used in this task; later tasks (BIN, REM, INK) will dispatch on it
+	// Keyword match: jump pos to endPos, walking the consumed range to
+	// keep col/line tracking accurate.
+	l.advanceColOver(l.pos, endPos)
+	l.pos = endPos
+	// One-trailing-space drop.
+	if l.pos < len(l.input) && l.input[l.pos] == ' ' {
+		l.pos++
+		l.col++
+	}
+	l.emitBytes(itemKeyword, kwBytes, l.input[l.start:l.pos])
 	return lexBodyLoop
 }
 

@@ -269,6 +269,91 @@ func TestLexBody_OneSpaceDrop(t *testing.T) {
 	}
 }
 
+func TestLexKeyword_Basic(t *testing.T) {
+	tests := []struct {
+		name      string
+		in        string
+		wantBytes []byte
+	}{
+		{"PRINT", "10 PRINT \"hi\"\n", []byte{byte(PRINT), '"', 'h', 'i', '"'}},
+		{"print-lowercase", "10 print \"hi\"\n", []byte{byte(PRINT), '"', 'h', 'i', '"'}},
+		{"Print-mixed", "10 Print \"hi\"\n", []byte{byte(PRINT), '"', 'h', 'i', '"'}},
+		{"LOAD-no-space-before-quote", "10 LOAD\"foo\"\n", []byte{byte(LOAD), '"', 'f', 'o', 'o', '"'}},
+		{"GO TO single space", "10 GO TO 20\n", []byte{byte(GO_TO), '2', '0'}},
+		{"GOTO no space", "10 GOTO 20\n", []byte{byte(GO_TO), '2', '0'}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			var body []byte
+			i := 0
+			for i < len(got) && got[i].typ != itemLineNumber {
+				i++
+			}
+			i++
+			for i < len(got) && got[i].typ != itemEOL {
+				if got[i].bytes != nil {
+					body = append(body, got[i].bytes...)
+				} else {
+					body = append(body, []byte(got[i].val)...)
+				}
+				i++
+			}
+			if !bytesEqual(body, tt.wantBytes) {
+				t.Errorf("body = %v, want %v", body, tt.wantBytes)
+			}
+		})
+	}
+}
+
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestLexKeyword_SpaceDrop(t *testing.T) {
+	tests := []struct {
+		name  string
+		in    string
+		wantN int // total body byte count (excluding EOL marker)
+	}{
+		// PRINT(1) + "(1) + a(1) + "(1) + :(1) + PRINT(1) + "(1) + b(1) + "(1) = 9
+		{"colon-no-space", "10 PRINT \"a\":PRINT \"b\"\n", 9},
+		// 9 + 1 space before colon = 10
+		{"space-before-colon", "10 PRINT \"a\" :PRINT \"b\"\n", 10},
+		{"two-colons", "10 :: PRINT \"x\"\n", 6}, // : : PRINT " x " = 6
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			var n int
+			i := 0
+			for i < len(got) && got[i].typ != itemLineNumber {
+				i++
+			}
+			i++
+			for i < len(got) && got[i].typ != itemEOL {
+				if got[i].bytes != nil {
+					n += len(got[i].bytes)
+				} else {
+					n += len(got[i].val)
+				}
+				i++
+			}
+			if n != tt.wantN {
+				t.Errorf("body byte count = %d, want %d", n, tt.wantN)
+			}
+		})
+	}
+}
+
 func TestLexString(t *testing.T) {
 	tests := []struct {
 		name string
