@@ -438,21 +438,95 @@ func lexNumber(l *lexer) stateFn {
 	return emitNumberFP(l)
 }
 
-// emitNumberFP emits an itemNumber whose bytes are the visible literal
-// followed by the 0x0E marker and the 5-byte FP form returned by
-// encodeFP.
+// emitNumberFP emits an itemNumber whose bytes are the visible
+// literal, optionally followed by trailing space bytes, then the
+// 0x0E marker and the 5-byte FP form.
+//
+// Position of the FP marker relative to trailing whitespace depends
+// on which ROM parser path handled the literal. Two paths:
+//
+//  1. INTTOFP / DECINT (integer-only decimal) at L17DE uses NXCHAR
+//     (L00DD: INC HL; LD (CHAD),HL; LD A,(HL); RET) which does NOT
+//     skip whitespace. INTTOFP stops at the first non-digit byte,
+//     leaving CHAD AT that byte. If that byte is a space, INSERT5B's
+//     MAKESIX opens the 6-byte hole AT the space, shifting it past
+//     the FP form — space ends up AFTER FP.
+//
+//  2. DECIMAL (literal with `.` or `E`) at L1778, AMPERSAND (hex
+//     `&`) at L18675, NXBINDIG (BIN) at L5613 all use RST 20H /
+//     RST 18H, which call GTCH1 (L00C8) → GTCH3 (L00D3) — these
+//     skip every byte in 0x00-0x20 except 0x0D. CHAD lands past
+//     the trailing whitespace; INSERT5B opens the hole there — so
+//     the whitespace stays BEFORE the FP form.
+//
+// TOKMAIN's TOK43 (L4E00-4E07) further complicates path 2: it
+// overwrites ONE space immediately preceding a matched keyword
+// before LINESCAN ever runs. So for `.025 SP TO` the space is
+// consumed by TOK43, and for `.025 SP SP TO` one space survives.
+// We emulate this by emitting (trailing-space-count − 1) spaces
+// before the FP marker when a keyword follows.
+//
+// Verified against MUSIC2 corpus:
+//
+//	BEEP .025 ,20   → AD 2E 30 32 35 20 0E <FP> 2C 32 30 0E <FP>   (path 2, comma)
+//	PAUSE 20 :POW   → C2 32 30 0E <FP> 20 3A F4                    (path 1, space → after FP)
+//	FOR q=1 TO 4    → C0 71 3D 31 0E <FP> 8E 34 0E <FP>            (path 1, TOK43 dropped space)
+//	FOR g= 1 TO 2   → C0 67 3D 20 31 0E <FP> 8E 32 0E <FP>         (path 1, no trailing space)
+//
+// Note: grammar §2.4 says GTCH1 skips only 0x00-0x1F; the ROM at
+// L00C8 (`CP 21H; JR C,GTCH3`) plus L00D7 (GTCH3 INC HL) shows the
+// skip is 0x00-0x20 — worth correcting in the grammar doc.
 func emitNumberFP(l *lexer) stateFn {
 	literal := l.input[l.start:l.pos]
 	fp, err := encodeFP(literal)
 	if err != nil {
 		return l.errorf("%s", err.Error())
 	}
-	out := make([]byte, 0, len(literal)+6)
-	out = append(out, []byte(literal)...)
+	skipsTrailingWS := numberParserSkipsTrailingWhitespace(literal)
+	if skipsTrailingWS {
+		spaceCount := 0
+		for l.pos+spaceCount < len(l.input) && l.input[l.pos+spaceCount] == ' ' {
+			spaceCount++
+		}
+		keywordFollows := false
+		if spaceCount > 0 && l.pos+spaceCount < len(l.input) {
+			b := l.input[l.pos+spaceCount]
+			if isAlpha(int(b)) || b == '<' || b == '>' {
+				if _, _, _, ok := lookupKeyword(l.input, l.pos+spaceCount); ok {
+					keywordFollows = true
+				}
+			}
+		}
+		toInclude := spaceCount
+		if keywordFollows {
+			toInclude--
+		}
+		l.pos += toInclude
+		l.col += toInclude
+	}
+	fullText := l.input[l.start:l.pos]
+	out := make([]byte, 0, len(fullText)+6)
+	out = append(out, []byte(fullText)...)
 	out = append(out, 0x0E)
 	out = append(out, fp[:]...)
 	l.emitBytes(itemNumber, out, literal)
 	return lexBodyLoop
+}
+
+// numberParserSkipsTrailingWhitespace reports whether the ROM parser
+// for the given literal advances CHAD past trailing whitespace before
+// INSERT5B inserts the FP form. See emitNumberFP's doc for details.
+func numberParserSkipsTrailingWhitespace(literal string) bool {
+	if len(literal) > 0 && literal[0] == '&' {
+		return true // AMPERSAND (hex) — RST 20H path
+	}
+	for i := 0; i < len(literal); i++ {
+		c := literal[i]
+		if c == '.' || c == 'e' || c == 'E' {
+			return true // DECIMAL (with dot or scientific) — RST 20H path
+		}
+	}
+	return false // INTTOFP / DECINT — NXCHAR path (no skip)
 }
 
 func isAlpha(r int) bool {
@@ -740,8 +814,32 @@ func lexBinaryDigits(l *lexer) stateFn {
 	var fp [5]byte
 	fp[2] = byte(v & 0xFF)
 	fp[3] = byte((v >> 8) & 0xFF)
-	out := make([]byte, 0, len(literal)+6)
-	out = append(out, []byte(literal)...)
+	// BIN's parser uses NXBINDIG (L5613) which calls RST 20H — the
+	// skipping path. Include trailing whitespace before the FP form,
+	// with the TOK43 keyword-follows adjustment. Same logic as
+	// emitNumberFP's path-2 branch.
+	spaceCount := 0
+	for l.pos+spaceCount < len(l.input) && l.input[l.pos+spaceCount] == ' ' {
+		spaceCount++
+	}
+	keywordFollows := false
+	if spaceCount > 0 && l.pos+spaceCount < len(l.input) {
+		b := l.input[l.pos+spaceCount]
+		if isAlpha(int(b)) || b == '<' || b == '>' {
+			if _, _, _, ok := lookupKeyword(l.input, l.pos+spaceCount); ok {
+				keywordFollows = true
+			}
+		}
+	}
+	toInclude := spaceCount
+	if keywordFollows {
+		toInclude--
+	}
+	l.pos += toInclude
+	l.col += toInclude
+	fullText := l.input[l.start:l.pos]
+	out := make([]byte, 0, len(fullText)+6)
+	out = append(out, []byte(fullText)...)
 	out = append(out, 0x0E)
 	out = append(out, fp[:]...)
 	l.emitBytes(itemNumber, out, literal)

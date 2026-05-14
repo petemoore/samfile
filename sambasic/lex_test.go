@@ -728,6 +728,110 @@ func TestLexKeyword_NoMidIdentifierKeyword(t *testing.T) {
 	}
 }
 
+// TestLexNumber_TrailingSpaceBeforeFP covers the ROM-quirk where
+// the position of the 0x0E FP marker relative to trailing whitespace
+// depends on which parser path handled the number literal:
+//   - INTTOFP / DECINT (integer-only decimal) uses NXCHAR which does
+//     NOT skip whitespace — trailing space ends up AFTER the FP form.
+//   - DECIMAL (has `.` or `E`) and AMPERSAND (hex) and NXBINDIG (BIN)
+//     use RST 20H which DOES skip whitespace — trailing space ends
+//     up BEFORE the FP form (and TOK43 in TOKMAIN eats one space if
+//     a keyword follows).
+func TestLexNumber_TrailingSpaceBeforeFP(t *testing.T) {
+	fp1 := []byte{0x0E, 0x00, 0x00, 0x01, 0x00, 0x00}        // FP for 1
+	fp025 := []byte{0x0E, 0x7B, 0x4C, 0xCC, 0xCC, 0xCD}      // FP for 0.025 (encoded form may vary; we test placement, not value)
+	_ = fp025                                                  // kept for documentation; we only assert placement structurally below
+	fp_be05 := []byte{0x0E, 0x00, 0x00, 0x05, 0x00, 0x00}    // FP for 5
+	_ = fp_be05
+	tests := []struct {
+		name      string
+		in        string
+		wantBytes []byte
+	}{
+		{
+			// Integer + space + non-keyword: space stays AFTER FP form.
+			// `BEEP 1 ,2` → BEEP + `1` + 0E <FP-1> + ` ` + `,` + `2` + 0E <FP-2>
+			name: "integer-space-comma",
+			in:   "10 BEEP 1 ,2\n",
+			wantBytes: func() []byte {
+				out := []byte{byte(BEEP), '1'}
+				out = append(out, fp1...)
+				out = append(out, ' ', ',', '2')
+				out = append(out, fp1[:1]...)            // 0E
+				out = append(out, 0x00, 0x00, 0x02, 0x00, 0x00) // FP for 2
+				return out
+			}(),
+		},
+		{
+			// Integer + space + keyword: TOK43 ate the space; no space anywhere.
+			name: "integer-space-keyword",
+			in:   "10 FOR q=1 TO 4\n",
+			wantBytes: func() []byte {
+				out := []byte{byte(FOR), 'q', '=', '1'}
+				out = append(out, fp1...)
+				out = append(out, byte(TO), '4')
+				out = append(out, 0x0E, 0x00, 0x00, 0x04, 0x00, 0x00)
+				return out
+			}(),
+		},
+		{
+			// Decimal-with-dot + space + non-keyword: space stays BEFORE FP form.
+			// `BEEP .025 ,20` per MUSIC2 corpus.
+			name: "dot-space-comma",
+			in:   "10 BEEP .025 ,20\n",
+			// We assert structurally: BEEP `.025 ` 0E <5 FP bytes> `,20` 0E <5 FP bytes>
+			// The exact 5 FP bytes for 0.025 depend on encodeFP; we check the
+			// space-before-0E placement and tail structure.
+			wantBytes: nil, // checked below via custom assertion
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			var body []byte
+			i := 0
+			for i < len(got) && got[i].typ != itemLineNumber {
+				i++
+			}
+			i++
+			for i < len(got) && got[i].typ != itemEOL {
+				if got[i].bytes != nil {
+					body = append(body, got[i].bytes...)
+				} else {
+					body = append(body, []byte(got[i].val)...)
+				}
+				i++
+			}
+			if tt.wantBytes != nil {
+				if !bytesEqual(body, tt.wantBytes) {
+					t.Errorf("body = % X, want % X", body, tt.wantBytes)
+				}
+			} else if tt.name == "dot-space-comma" {
+				// Structural assertion for the dot-space-comma case.
+				want := []byte{byte(BEEP), '.', '0', '2', '5', ' ', 0x0E}
+				cap := len(want)
+				if len(body) < cap {
+					cap = len(body)
+				}
+				if len(body) < len(want) || !bytesEqual(body[:len(want)], want) {
+					t.Errorf("prefix = % X, want prefix % X", body[:cap], want)
+				}
+				// After the 6-byte FP, expect `,20` + 0E + 5 FP bytes.
+				if len(body) >= len(want)+5+1+2+6 {
+					tailStart := len(want) + 5 // skip 5 FP bytes for 0.025
+					tail := body[tailStart : tailStart+1+2+6]
+					wantTail := []byte{',', '2', '0', 0x0E, 0x00, 0x00, 0x14, 0x00, 0x00}
+					if !bytesEqual(tail, wantTail) {
+						t.Errorf("tail = % X, want % X", tail, wantTail)
+					}
+				} else {
+					t.Errorf("body too short: % X", body)
+				}
+			}
+		})
+	}
+}
+
 // TestLexProcCall_AfterStatementIntroducer covers the rule that
 // certain keywords (THEN, ELSE, ON ERROR) introduce a new statement
 // context, so a bare identifier following them must be treated as a
