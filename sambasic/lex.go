@@ -332,8 +332,11 @@ func lexBodyLoop(l *lexer) stateFn {
 	}
 	if r == ' ' {
 		// Leading-space-drop: if a keyword starts right after this space,
-		// drop the space (don't emit it). Don't touch stmtInitial here:
-		// we're still in statement-initial position.
+		// drop the space (don't emit it). Whether we drop or emit, the
+		// space is whitespace — it does NOT change statement-initial
+		// status. (E.g. `: WIN: PAUSE` keeps WIN at statement-initial so
+		// it gets the PROC placeholder; clobbering stmtInitial to false
+		// at the space would emit WIN as a plain identifier instead.)
 		if l.pos < len(l.input) {
 			b := l.input[l.pos]
 			if isAlpha(int(b)) || b == '<' || b == '>' {
@@ -344,7 +347,6 @@ func lexBodyLoop(l *lexer) stateFn {
 			}
 		}
 		l.emit(itemLiteral)
-		l.stmtInitial = false
 		return lexBodyLoop
 	}
 	if isAlpha(r) {

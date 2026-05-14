@@ -765,6 +765,16 @@ func TestLexProcCall_AfterStatementIntroducer(t *testing.T) {
 				return out
 			}(),
 		},
+		{
+			// A literal space between `:` and a bare identifier (i.e.
+			// not consumed by leading-space-drop because no keyword
+			// follows) must not clobber statement-initial status. The
+			// space is whitespace; WIN remains a procedure call.
+			name: "colon-space-proc",
+			in:   "10 : WIN\n",
+			// ":" + " " + "WIN" + placeholder
+			wantBytes: append([]byte{':', ' ', 'W', 'I', 'N'}, procTail...),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
