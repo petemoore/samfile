@@ -323,7 +323,43 @@ func lexBodyLoop(l *lexer) stateFn {
 		l.backup()
 		return lexKeyword
 	}
+	if r >= '0' && r <= '9' {
+		l.backup()
+		return lexNumber
+	}
 	l.emit(itemLiteral)
+	return lexBodyLoop
+}
+
+// lexNumber scans a decimal numeric literal and emits itemNumber.
+// Handles integer-only here; Tasks 8-10 extend to hex, scientific,
+// and BIN forms. Enforces digit-then-letter rejection per grammar
+// spec §4.2: after the digits, the next character must not be a
+// letter or underscore.
+func lexNumber(l *lexer) stateFn {
+	const digits = "0123456789"
+	l.acceptRun(digits)
+	if r := l.peek(); r != eof && (isAlpha(r) || r == '_') {
+		l.next()
+		return l.errorf("bad number syntax: %q", l.input[l.start:l.pos])
+	}
+	return emitNumberFP(l)
+}
+
+// emitNumberFP emits an itemNumber whose bytes are the visible literal
+// followed by the 0x0E marker and the 5-byte FP form returned by
+// encodeFP.
+func emitNumberFP(l *lexer) stateFn {
+	literal := l.input[l.start:l.pos]
+	fp, err := encodeFP(literal)
+	if err != nil {
+		return l.errorf("%s", err.Error())
+	}
+	out := make([]byte, 0, len(literal)+6)
+	out = append(out, []byte(literal)...)
+	out = append(out, 0x0E)
+	out = append(out, fp[:]...)
+	l.emitBytes(itemNumber, out, literal)
 	return lexBodyLoop
 }
 

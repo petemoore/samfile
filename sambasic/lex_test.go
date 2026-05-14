@@ -279,8 +279,8 @@ func TestLexKeyword_Basic(t *testing.T) {
 		{"print-lowercase", "10 print \"hi\"\n", []byte{byte(PRINT), '"', 'h', 'i', '"'}},
 		{"Print-mixed", "10 Print \"hi\"\n", []byte{byte(PRINT), '"', 'h', 'i', '"'}},
 		{"LOAD-no-space-before-quote", "10 LOAD\"foo\"\n", []byte{byte(LOAD), '"', 'f', 'o', 'o', '"'}},
-		{"GO TO single space", "10 GO TO 20\n", []byte{byte(GO_TO), '2', '0'}},
-		{"GOTO no space", "10 GOTO 20\n", []byte{byte(GO_TO), '2', '0'}},
+		{"GO TO single space", "10 GO TO 20\n", []byte{byte(GO_TO), '2', '0', 0x0E, 0x00, 0x00, 0x14, 0x00, 0x00}},
+		{"GOTO no space", "10 GOTO 20\n", []byte{byte(GO_TO), '2', '0', 0x0E, 0x00, 0x00, 0x14, 0x00, 0x00}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -378,6 +378,60 @@ func TestLexString(t *testing.T) {
 			}
 			if s != tt.want {
 				t.Errorf("string item val = %q, want %q", s, tt.want)
+			}
+		})
+	}
+}
+
+func TestLexNumber_Decimal(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		wantVal string
+		wantFP  [5]byte
+		wantErr string
+	}{
+		{"int", "10 PRINT 42\n", "42", [5]byte{0x00, 0x00, 0x2A, 0x00, 0x00}, ""},
+		{"zero", "10 PRINT 0\n", "0", [5]byte{0x00, 0x00, 0x00, 0x00, 0x00}, ""},
+		{"max", "10 PRINT 65535\n", "65535", [5]byte{0x00, 0x00, 0xFF, 0xFF, 0x00}, ""},
+		{"trailing-letter", "10 PRINT 1G\n", "", [5]byte{}, `bad number syntax: "1G"`},
+		{"trailing-colon-ok", "10 PRINT 1:PRINT 2\n", "", [5]byte{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			if tt.wantErr != "" {
+				if got[len(got)-1].typ != itemError {
+					t.Fatalf("expected itemError, got %v", got)
+				}
+				if got[len(got)-1].val != tt.wantErr {
+					t.Errorf("error = %q, want %q", got[len(got)-1].val, tt.wantErr)
+				}
+				return
+			}
+			var num *item
+			for i := range got {
+				if got[i].typ == itemNumber {
+					num = &got[i]
+					break
+				}
+			}
+			if tt.wantVal == "" {
+				return
+			}
+			if num == nil {
+				t.Fatalf("no itemNumber emitted; got %v", got)
+			}
+			if num.val != tt.wantVal {
+				t.Errorf("val = %q, want %q", num.val, tt.wantVal)
+			}
+			if len(num.bytes) < 5 {
+				t.Fatalf("bytes too short: %v", num.bytes)
+			}
+			var got5 [5]byte
+			copy(got5[:], num.bytes[len(num.bytes)-5:])
+			if got5 != tt.wantFP {
+				t.Errorf("FP bytes = % X, want % X", got5, tt.wantFP)
 			}
 		})
 	}
