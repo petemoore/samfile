@@ -619,6 +619,39 @@ func TestLexComment_REM(t *testing.T) {
 	}
 }
 
+func TestLexProcCall_Placeholder(t *testing.T) {
+	tests := []struct {
+		name      string
+		in        string
+		wantBytes []byte
+	}{
+		{"bare-X", "10 X\n", []byte{'X', 0x0E, 0xFD, 0xFD, 0xFD, 0x00, 0x00}},
+		{"two-procs", "10 X:Y\n", []byte{'X', 0x0E, 0xFD, 0xFD, 0xFD, 0x00, 0x00, ':', 'Y', 0x0E, 0xFD, 0xFD, 0xFD, 0x00, 0x00}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			var body []byte
+			i := 0
+			for i < len(got) && got[i].typ != itemLineNumber {
+				i++
+			}
+			i++
+			for i < len(got) && got[i].typ != itemEOL {
+				if got[i].bytes != nil {
+					body = append(body, got[i].bytes...)
+				} else {
+					body = append(body, []byte(got[i].val)...)
+				}
+				i++
+			}
+			if !bytesEqual(body, tt.wantBytes) {
+				t.Errorf("body = % X, want % X", body, tt.wantBytes)
+			}
+		})
+	}
+}
+
 func TestLexControlEscape(t *testing.T) {
 	tests := []struct {
 		name      string

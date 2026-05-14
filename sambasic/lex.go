@@ -36,26 +36,28 @@ type item struct {
 type stateFn func(*lexer) stateFn
 
 type lexer struct {
-	input     string
-	pos       int
-	start     int
-	width     int
-	line      int
-	col       int
-	startLine int
-	startCol  int
-	state     stateFn
-	items     chan item
+	input       string
+	pos         int
+	start       int
+	width       int
+	line        int
+	col         int
+	startLine   int
+	startCol    int
+	state       stateFn
+	items       chan item
+	stmtInitial bool
 }
 
 func lex(input string) *lexer {
 	l := &lexer{
-		input:     input,
-		line:      1,
-		col:       1,
-		startLine: 1,
-		startCol:  1,
-		items:     make(chan item, 2),
+		input:       input,
+		line:        1,
+		col:         1,
+		startLine:   1,
+		startCol:    1,
+		items:       make(chan item, 2),
+		stmtInitial: true,
 	}
 	return l
 }
@@ -245,6 +247,7 @@ func lexLineNumber(l *lexer) stateFn {
 // to lexBodyLoop. For now (until later tasks add keyword/number/string/etc.
 // handling), every non-newline byte is emitted as itemLiteral.
 func lexBody(l *lexer) stateFn {
+	l.stmtInitial = true
 	// One-space-drop: examine the first byte after the line number digits.
 	r := l.next()
 	if r == eof {
@@ -306,11 +309,13 @@ func lexBodyLoop(l *lexer) stateFn {
 	}
 	if r == '"' {
 		l.backup()
+		l.stmtInitial = false
 		return lexString
 	}
 	if r == ' ' {
 		// Leading-space-drop: if a keyword starts right after this space,
-		// drop the space (don't emit it).
+		// drop the space (don't emit it). Don't touch stmtInitial here:
+		// we're still in statement-initial position.
 		if l.pos < len(l.input) && isAlpha(rune(l.input[l.pos])) {
 			if _, _, _, isKW := lookupKeyword(l.input, l.pos); isKW {
 				l.ignore()
@@ -318,6 +323,7 @@ func lexBodyLoop(l *lexer) stateFn {
 			}
 		}
 		l.emit(itemLiteral)
+		l.stmtInitial = false
 		return lexBodyLoop
 	}
 	if isAlpha(r) {
@@ -326,17 +332,26 @@ func lexBodyLoop(l *lexer) stateFn {
 	}
 	if r == '&' {
 		l.backup()
+		l.stmtInitial = false
 		return lexNumber
 	}
 	if r >= '0' && r <= '9' {
 		l.backup()
+		l.stmtInitial = false
 		return lexNumber
 	}
 	if r == '{' {
 		l.backup()
+		l.stmtInitial = false
 		return lexControlEscape
 	}
+	if r == ':' {
+		l.emit(itemLiteral)
+		l.stmtInitial = true
+		return lexBodyLoop
+	}
 	l.emit(itemLiteral)
+	l.stmtInitial = false
 	return lexBodyLoop
 }
 
@@ -538,10 +553,33 @@ func (l *lexer) advanceColOver(oldPos, newPos int) {
 func lexKeyword(l *lexer) stateFn {
 	canonical, endPos, kwBytes, ok := lookupKeyword(l.input, l.pos)
 	if !ok {
-		// Not a keyword: emit one byte and return self until run is
-		// exhausted. This preserves the yield-after-emit rule.
+		// Not a keyword. If we're at the start of a statement, this is a
+		// bare-identifier PROC call: consume the whole alphanumeric run
+		// and emit the identifier + 6-byte placeholder. Otherwise, emit
+		// one byte and recurse (expression-context identifier path).
+		if l.stmtInitial {
+			// Consume the whole alphanumeric run.
+			for {
+				r := l.next()
+				if r == eof || !isAlphaNum(r) {
+					if r != eof {
+						l.backup()
+					}
+					break
+				}
+			}
+			identifier := l.input[l.start:l.pos]
+			out := make([]byte, 0, len(identifier)+6)
+			out = append(out, []byte(identifier)...)
+			out = append(out, 0x0E, 0xFD, 0xFD, 0xFD, 0x00, 0x00)
+			l.emitBytes(itemProcCallPlaceholder, out, identifier)
+			l.stmtInitial = false
+			return lexBodyLoop
+		}
+		// Expression-context: emit one byte and continue.
 		l.next()
 		l.emit(itemLiteral)
+		l.stmtInitial = false
 		if r := l.peek(); r != eof && isAlphaNum(r) {
 			return lexKeyword
 		}
@@ -556,6 +594,7 @@ func lexKeyword(l *lexer) stateFn {
 		l.pos++
 		l.col++
 	}
+	l.stmtInitial = false
 	l.emitBytes(itemKeyword, kwBytes, l.input[l.start:l.pos])
 	if canonical == "BIN" {
 		return lexBinaryDigits
