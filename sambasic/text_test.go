@@ -116,3 +116,29 @@ func TestFinalise_InkPatch(t *testing.T) {
 		t.Errorf("first body byte = %#x, want 0xA1 (PEN)", bytes[4])
 	}
 }
+
+func TestParseText_BuildDiskAutoRunFixture(t *testing.T) {
+	src := `10 CLEAR 32767
+20 LOAD "stub" CODE 32768
+30 CALL 32768
+`
+	got, err := ParseTextString(src)
+	if err != nil {
+		t.Fatalf("ParseText: %v", err)
+	}
+
+	want := &File{
+		Lines: []Line{
+			{Number: 10, Tokens: []Token{CLEAR, Number(32767)}},
+			{Number: 20, Tokens: []Token{LOAD, String(`"stub"`), CODE, Number(32768)}},
+			{Number: 30, Tokens: []Token{CALL, Number(32768)}},
+		},
+	}
+
+	gotBytes := got.ProgBytes()
+	wantBytes := want.ProgBytes()
+
+	if !bytesEqual(gotBytes, wantBytes) {
+		t.Errorf("ProgBytes mismatch\ngot:  % X\nwant: % X", gotBytes, wantBytes)
+	}
+}
