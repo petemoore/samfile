@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 const eof = -1
@@ -62,37 +61,23 @@ func lex(input string) *lexer {
 	return l
 }
 
-func (l *lexer) next() rune {
+// next returns the next input byte (0..255) or eof (-1).
+//
+// The lexer operates on a stream of SAM Coupé bytes, not Unicode runes.
+// The SAM character set is 1 byte per glyph across 0x00..0xFF; bytes
+// 0x80..0xFF are valid SAM characters (graphics symbols, accented
+// letters) that appear in REM bodies and string literals. Decoding the
+// input as UTF-8 would mangle those bytes (utf8.RuneError -> truncated
+// to 0xFD), so this primitive deliberately reads bytes. ASCII-class
+// helpers (isAlpha, isAlphaNum, keywordFold) work fine on byte values
+// because they only test ASCII ranges.
+//
+// width is 0 after EOF or after backup(), 1 after consuming a byte; it
+// guards backup() from undoing a non-advance (e.g. peek-at-eof).
+func (l *lexer) next() int {
 	if l.pos >= len(l.input) {
 		l.width = 0
 		return eof
-	}
-	r, w := utf8.DecodeRuneInString(l.input[l.pos:])
-	l.width = w
-	l.pos += w
-	if r == '\n' {
-		l.line++
-		l.col = 1
-	} else {
-		l.col++
-	}
-	return r
-}
-
-// nextByte advances one input byte and returns it (no UTF-8 decoding).
-// Returns (0, false) at end of input. Used by byte-preserving contexts
-// such as REM bodies and string bodies, where each input byte must
-// survive verbatim into the output (UTF-8 decode would mangle any byte
-// > 0x7F that is not a valid UTF-8 prefix into utf8.RuneError, which
-// truncates to 0xFD when cast to byte).
-//
-// Line/column counters are updated assuming the byte is not part of a
-// multi-byte UTF-8 sequence; this is correct for the binary-clean text
-// streams emitted by basic-to-text (one input byte ↔ one output byte).
-func (l *lexer) nextByte() (byte, bool) {
-	if l.pos >= len(l.input) {
-		l.width = 0
-		return 0, false
 	}
 	b := l.input[l.pos]
 	l.width = 1
@@ -103,7 +88,7 @@ func (l *lexer) nextByte() (byte, bool) {
 	} else {
 		l.col++
 	}
-	return b, true
+	return int(b)
 }
 
 func (l *lexer) backup() {
@@ -111,8 +96,7 @@ func (l *lexer) backup() {
 		return
 	}
 	l.pos -= l.width
-	r, _ := utf8.DecodeRuneInString(l.input[l.pos:])
-	if r == '\n' {
+	if l.input[l.pos] == '\n' {
 		l.line--
 		// col tracking after backup over a newline is approximate; refine if a test demands it
 	} else {
@@ -121,14 +105,14 @@ func (l *lexer) backup() {
 	l.width = 0
 }
 
-func (l *lexer) peek() rune {
+func (l *lexer) peek() int {
 	r := l.next()
 	l.backup()
 	return r
 }
 
 func (l *lexer) accept(valid string) bool {
-	if strings.ContainsRune(valid, l.next()) {
+	if r := l.next(); r != eof && strings.IndexByte(valid, byte(r)) >= 0 {
 		return true
 	}
 	l.backup()
@@ -136,7 +120,11 @@ func (l *lexer) accept(valid string) bool {
 }
 
 func (l *lexer) acceptRun(valid string) {
-	for strings.ContainsRune(valid, l.next()) {
+	for {
+		r := l.next()
+		if r == eof || strings.IndexByte(valid, byte(r)) < 0 {
+			break
+		}
 	}
 	l.backup()
 }
@@ -346,7 +334,7 @@ func lexBodyLoop(l *lexer) stateFn {
 		// Leading-space-drop: if a keyword starts right after this space,
 		// drop the space (don't emit it). Don't touch stmtInitial here:
 		// we're still in statement-initial position.
-		if l.pos < len(l.input) && isAlpha(rune(l.input[l.pos])) {
+		if l.pos < len(l.input) && isAlpha(int(l.input[l.pos])) {
 			if _, _, _, isKW := lookupKeyword(l.input, l.pos); isKW {
 				l.ignore()
 				return lexBodyLoop
@@ -458,11 +446,11 @@ func emitNumberFP(l *lexer) stateFn {
 	return lexBodyLoop
 }
 
-func isAlpha(r rune) bool {
+func isAlpha(r int) bool {
 	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
 }
 
-func isAlphaNum(r rune) bool {
+func isAlphaNum(r int) bool {
 	return isAlpha(r) || (r >= '0' && r <= '9') || r == '_'
 }
 
@@ -713,34 +701,25 @@ func lexString(l *lexer) stateFn {
 	}
 	// Resolve {N} escapes inline. We build a fresh byte slice rather than
 	// rely on l.input[l.start:l.pos] because the resolved bytes may
-	// differ from the source bytes. String bodies are byte-clean — see
-	// the rationale on nextByte for why we walk bytes here rather than
-	// runes.
+	// differ from the source bytes.
 	out := []byte{'"'}
 	for {
-		b, ok := l.nextByte()
-		if !ok {
+		r := l.next()
+		if r == eof {
 			l.emitBytes(itemString, out, l.input[l.start:l.pos])
 			return lexBodyLoop
 		}
-		if b == '\n' || b == '\r' {
+		if r == '\n' || r == '\r' {
 			// Back up: the line terminator belongs to lexBodyLoop.
-			l.pos--
-			if b == '\n' {
-				l.line--
-			}
-			l.col--
-			l.width = 0
+			l.backup()
 			l.emitBytes(itemString, out, l.input[l.start:l.pos])
 			return lexBodyLoop
 		}
-		if b == '"' {
+		if r == '"' {
 			// Look ahead: another " means doubled-quote escape; consume
 			// both and stay in string mode.
-			if l.pos < len(l.input) && l.input[l.pos] == '"' {
-				l.pos++
-				l.col++
-				l.width = 1
+			if l.peek() == '"' {
+				l.next()
 				out = append(out, '"', '"')
 				continue
 			}
@@ -749,17 +728,17 @@ func lexString(l *lexer) stateFn {
 			l.emitBytes(itemString, out, l.input[l.start:l.pos])
 			return lexBodyLoop
 		}
-		if b == '{' {
+		if r == '{' {
 			// Try to parse {NNN}; if it fails, treat as literal {.
 			savedPos := l.pos
 			digitStart := l.pos
 			matched := false
 			for {
-				b2, ok2 := l.nextByte()
-				if !ok2 {
+				r2 := l.next()
+				if r2 == eof {
 					break
 				}
-				if b2 == '}' {
+				if r2 == '}' {
 					digits := l.input[digitStart : l.pos-1]
 					if digits != "" {
 						v, err := strconv.ParseUint(digits, 10, 16)
@@ -770,31 +749,30 @@ func lexString(l *lexer) stateFn {
 					}
 					break
 				}
-				if b2 == '\n' || b2 == '\r' || b2 < '0' || b2 > '9' {
+				if r2 == '\n' || r2 == '\r' || r2 < '0' || r2 > '9' {
 					break
 				}
 			}
 			if !matched {
 				// Rewind to right after `{`, emit `{` as a literal byte.
 				l.pos = savedPos
+				l.width = 0
 				out = append(out, '{')
 			}
 			continue
 		}
-		out = append(out, b)
+		out = append(out, byte(r))
 	}
 }
 
 // lexComment consumes the rest of the current line as a single raw
 // itemLiteral (no keyword/number/string tokenisation inside), then
-// hands back to a small finaliser state. The REM body is byte-clean —
-// see the rationale on nextByte for why we walk bytes here rather than
-// runes.
+// hands back to a small finaliser state.
 func lexComment(l *lexer) stateFn {
 	out := []byte{}
 	for {
-		b, ok := l.nextByte()
-		if !ok {
+		r := l.next()
+		if r == eof {
 			// Emit literal here (if any), then return a finaliser that
 			// emits the closing EOL and EOF on subsequent invocations.
 			if len(out) > 0 {
@@ -805,14 +783,9 @@ func lexComment(l *lexer) stateFn {
 			l.emit(itemEOF)
 			return nil
 		}
-		if b == '\n' || b == '\r' {
+		if r == '\n' || r == '\r' {
 			// Back up: the line terminator belongs to the outer driver.
-			l.pos--
-			if b == '\n' {
-				l.line--
-			}
-			l.col--
-			l.width = 0
+			l.backup()
 			if len(out) > 0 {
 				l.emitBytes(itemLiteral, out, l.input[l.start:l.pos])
 				return lexCommentEndNewline
@@ -820,22 +793,22 @@ func lexComment(l *lexer) stateFn {
 			l.start = l.pos
 			l.startLine = l.line
 			l.startCol = l.col
-			_, _ = l.nextByte()
+			l.next()
 			l.ignore()
 			l.emit(itemEOL)
 			return lexStart
 		}
-		if b == '{' {
+		if r == '{' {
 			// Try to parse {NNN}; if it fails, treat as literal {.
 			savedPos := l.pos
 			digitStart := l.pos
 			matched := false
 			for {
-				b2, ok2 := l.nextByte()
-				if !ok2 {
+				r2 := l.next()
+				if r2 == eof {
 					break
 				}
-				if b2 == '}' {
+				if r2 == '}' {
 					digits := l.input[digitStart : l.pos-1]
 					if digits != "" {
 						v, err := strconv.ParseUint(digits, 10, 16)
@@ -846,17 +819,18 @@ func lexComment(l *lexer) stateFn {
 					}
 					break
 				}
-				if b2 == '\n' || b2 == '\r' || b2 < '0' || b2 > '9' {
+				if r2 == '\n' || r2 == '\r' || r2 < '0' || r2 > '9' {
 					break
 				}
 			}
 			if !matched {
 				l.pos = savedPos
+				l.width = 0
 				out = append(out, '{')
 			}
 			continue
 		}
-		out = append(out, b)
+		out = append(out, byte(r))
 	}
 }
 
