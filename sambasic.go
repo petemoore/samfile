@@ -113,9 +113,15 @@ func (basic *SAMBasic) Output() error {
 		return fmt.Errorf("basic-to-text: empty input; expected SAM BASIC bytes on stdin")
 	}
 	eppc := basic.EPPC
-	if eppc == 0 {
+	if eppc == 0 && !basic.Lossy {
 		eppc = 1
 	}
+	// In lossy mode, eppc stays at 0 unless explicitly set. This
+	// matches the ROM at 0x0681 (`LD (EPPC),HL ;NEW EPPC=FIRST
+	// LISTED LINE`) which sets EPPC = the lower bound of the LIST
+	// range, not the first actual line. Our LLIST-capture harness
+	// uses `LLIST 0 TO 65278`, so EPPC=0: the `>` cursor appears on
+	// line 0 if it exists, otherwise nowhere.
 	s := &outputState{
 		out:   os.Stdout,
 		rhs:   79,

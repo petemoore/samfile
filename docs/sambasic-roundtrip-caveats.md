@@ -62,11 +62,24 @@ When comparing LLIST output to `basic-to-text` output, expect these
 formatting differences that do NOT indicate a basic-to-text bug:
 
   - **Current-line marker `>`** after the first line number in
-    the LLIST output — SAM's editor shows the "current line" with
-    `>` instead of a trailing space.
+    the LLIST output — driven by the EPPC sysvar (0x5C49). Now
+    emitted by samfile in `--lossy` mode.
   - **Line wrapping at column ~80** for long lines in LLIST
     output — printer-width formatting that doesn't affect program
-    semantics.
+    semantics. Reproduced in `--lossy` mode.
+  - **Stray `?` syntax-error marker** — LLIST inserts a flashing
+    `?` at the byte whose memory address equals the XPTR sysvar
+    (0x5AA3-0x5AA4). XPTR is persistent runtime state pointing to
+    the last syntax-error location, set by whichever parser path
+    the ROM was last running. Its value is *not* encoded in the
+    saved BASIC body, so samfile cannot reproduce it from file
+    bytes alone.
+
+    **Fix in `tools/llist-capture/main.go`**: the auto-RUN line
+    now does `POKE 23203,0: POKE 23204,0:` before `LLIST`, which
+    zeros XPTR. Subsequent parser activity may store XPTR into
+    line 65279 (our control line), but LLIST's `1 TO 65278` range
+    excludes that, so no `?` artefact appears in captures.
 
 Anything else is worth investigating.
 
