@@ -725,6 +725,39 @@ func lexKeyword(l *lexer) stateFn {
 	if canonical == "REM" {
 		return lexComment
 	}
+	if canonical == "DEVICE" {
+		return lexDeviceArg
+	}
+	return lexBodyLoop
+}
+
+// lexDeviceArg handles the argument to the DEVICE command. SLDEVICE at
+// ROM L25289 parses `DEVICE <letter><optional number>` with a single
+// letter (`d`/`D`/`n`/`N`/`t`/`T`/`p`/`P`) followed by an optional
+// numeric drive/station/speed. The letter is stored as a single byte;
+// the number (if present) gets the standard 0x0E + 5-byte FP form.
+//
+// So `DEVICE d1` stores as `F0 64 31 0E <FP-1>` — letter byte then
+// number with FP marker. A generic identifier path would emit `d1`
+// as a single literal run and skip the FP insertion.
+//
+// This state emits exactly one alpha byte as a literal, then returns
+// to lexBodyLoop so any following number is handled normally.
+func lexDeviceArg(l *lexer) stateFn {
+	r := l.next()
+	if r == eof {
+		l.emit(itemEOL)
+		l.emit(itemEOF)
+		return nil
+	}
+	if !isAlpha(r) {
+		// Not a letter — unexpected per SLDEVICE syntax, but back up
+		// and let lexBodyLoop handle it gracefully rather than erroring.
+		l.backup()
+		return lexBodyLoop
+	}
+	l.emit(itemLiteral)
+	l.stmtInitial = false
 	return lexBodyLoop
 }
 
