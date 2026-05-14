@@ -323,6 +323,10 @@ func lexBodyLoop(l *lexer) stateFn {
 		l.backup()
 		return lexKeyword
 	}
+	if r == '&' {
+		l.backup()
+		return lexNumber
+	}
 	if r >= '0' && r <= '9' {
 		l.backup()
 		return lexNumber
@@ -337,6 +341,21 @@ func lexBodyLoop(l *lexer) stateFn {
 // spec §4.2: after the digits, the next character must not be a
 // letter or underscore.
 func lexNumber(l *lexer) stateFn {
+	// Hex literal: &[0-9A-Fa-f]+
+	if l.peek() == '&' {
+		l.next() // consume &
+		const hexDigits = "0123456789abcdefABCDEF"
+		if !l.accept(hexDigits) {
+			return l.errorf("expected hex digits after &")
+		}
+		l.acceptRun(hexDigits)
+		if r := l.peek(); r != eof && (isAlpha(r) || r == '_') {
+			l.next()
+			return l.errorf("bad number syntax: %q", l.input[l.start:l.pos])
+		}
+		return emitNumberFP(l)
+	}
+	// Decimal integer.
 	const digits = "0123456789"
 	l.acceptRun(digits)
 	if r := l.peek(); r != eof && (isAlpha(r) || r == '_') {

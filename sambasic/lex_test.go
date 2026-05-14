@@ -383,6 +383,57 @@ func TestLexString(t *testing.T) {
 	}
 }
 
+func TestLexNumber_Hex(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		wantVal string
+		wantFP  [5]byte
+		wantErr string
+	}{
+		{"hex-FF", "10 PRINT &FF\n", "&FF", [5]byte{0x00, 0x00, 0xFF, 0x00, 0x00}, ""},
+		{"hex-lowercase", "10 PRINT &ff\n", "&ff", [5]byte{0x00, 0x00, 0xFF, 0x00, 0x00}, ""},
+		{"hex-leading-zeros", "10 PRINT &0000FF\n", "&0000FF", [5]byte{0x00, 0x00, 0xFF, 0x00, 0x00}, ""},
+		{"bare-amp", "10 PRINT &\n", "", [5]byte{}, "expected hex digits after &"},
+		{"hex-then-letter", "10 PRINT &FFG\n", "", [5]byte{}, `bad number syntax: "&FFG"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			if tt.wantErr != "" {
+				if got[len(got)-1].typ != itemError {
+					t.Fatalf("expected itemError, got %v", got)
+				}
+				if got[len(got)-1].val != tt.wantErr {
+					t.Errorf("error = %q, want %q", got[len(got)-1].val, tt.wantErr)
+				}
+				return
+			}
+			var num *item
+			for i := range got {
+				if got[i].typ == itemNumber {
+					num = &got[i]
+					break
+				}
+			}
+			if num == nil {
+				t.Fatalf("no itemNumber; got %v", got)
+			}
+			if num.val != tt.wantVal {
+				t.Errorf("val = %q, want %q", num.val, tt.wantVal)
+			}
+			if len(num.bytes) < 5 {
+				t.Fatalf("bytes too short: %v", num.bytes)
+			}
+			var got5 [5]byte
+			copy(got5[:], num.bytes[len(num.bytes)-5:])
+			if got5 != tt.wantFP {
+				t.Errorf("FP bytes = % X, want % X", got5, tt.wantFP)
+			}
+		})
+	}
+}
+
 func TestLexNumber_Decimal(t *testing.T) {
 	tests := []struct {
 		name    string
