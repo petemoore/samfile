@@ -31,6 +31,7 @@ var corpusDir = filepath.Join(os.Getenv("HOME"), "sam-corpus", "disks")
 // is not stock content.
 var excludedDisks = map[string]string{
 	"18 Rated Poker for 512k (19xx) (Supplement Software).mgt": "SimCoupé: program crashes immediately on LOAD — disk content is not reachable from the stock SAM BASIC editor. (Supporting evidence: FILE3 line 7256 stores `call` as 4 literal bytes 63 61 6C 6C where TOKMAIN would have produced the 1-byte CALL keyword 0xE4.)",
+	"AMRAD Amateur Radio Logbook (1994) (Spencer).mgt":         "All 4 BASIC files use bytes from reserved/dead keyword-table slots (0xD0=EDIT, 0xFF 0x68, 0xFF 0x34, etc. per grammar §3.10). Stock SAM BASIC v3.0 cannot produce or render these — they belong to ROM extensions (MasterDOS, Comet, BetaDOS, ...). Not a stock SAM BASIC corpus.",
 }
 
 // truncateAtProgEnd walks the SAM BASIC line-header chain to find the
