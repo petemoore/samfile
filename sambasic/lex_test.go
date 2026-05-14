@@ -619,6 +619,24 @@ func TestLexComment_REM(t *testing.T) {
 	}
 }
 
+func TestLexKeyword_NoMidIdentifierKeyword(t *testing.T) {
+	// In expression context, 'crem' must not be tokenised as 'c'+'REM'.
+	// All five letters of "crem" should emit as plain literal bytes.
+	got := collectItems("10 LET crem=1\n")
+	// Find the bytes between LET keyword and '=' in the body
+	var sawREM bool
+	for _, it := range got {
+		if it.typ == itemKeyword && len(it.bytes) == 1 && it.bytes[0] == byte(REM) {
+			// REM keyword should NOT appear in this input
+			sawREM = true
+			break
+		}
+	}
+	if sawREM {
+		t.Error("'crem' was wrongly tokenised with REM keyword inside")
+	}
+}
+
 func TestLexProcCall_Placeholder(t *testing.T) {
 	tests := []struct {
 		name      string

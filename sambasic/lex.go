@@ -576,13 +576,23 @@ func lexKeyword(l *lexer) stateFn {
 			l.stmtInitial = false
 			return lexBodyLoop
 		}
-		// Expression-context: emit one byte and continue.
-		l.next()
+		// Expression-context: this is an identifier (not a keyword). Consume
+		// the entire alphanumeric run and emit as a single itemLiteral, with
+		// no further keyword-match attempts inside the run. Per TOKMAIN spec
+		// §3.1-§3.2, keywords only match at word boundaries; we must not
+		// re-attempt keyword lookup mid-identifier.
+		for {
+			r := l.next()
+			if r == eof {
+				break
+			}
+			if !isAlphaNum(r) {
+				l.backup()
+				break
+			}
+		}
 		l.emit(itemLiteral)
 		l.stmtInitial = false
-		if r := l.peek(); r != eof && isAlphaNum(r) {
-			return lexKeyword
-		}
 		return lexBodyLoop
 	}
 	// Keyword match: jump pos to endPos, walking the consumed range to
