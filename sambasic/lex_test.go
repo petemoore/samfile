@@ -268,3 +268,32 @@ func TestLexBody_OneSpaceDrop(t *testing.T) {
 		})
 	}
 }
+
+func TestLexString(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string // expected concatenation of itemString val(s)
+	}{
+		{"empty-string", `10 ""` + "\n", `""`},
+		{"simple", `10 "hello"` + "\n", `"hello"`},
+		{"doubled-quote", `10 "a""b"` + "\n", `"a""b"`},
+		{"three-quotes-unterminated", `10 """` + "\n", `"""`},
+		{"unterminated-eol", `10 "abc` + "\n", `"abc`},
+		{"unterminated-eof", `10 "abc`, `"abc`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			var s string
+			for _, it := range got {
+				if it.typ == itemString {
+					s += it.val
+				}
+			}
+			if s != tt.want {
+				t.Errorf("string item val = %q, want %q", s, tt.want)
+			}
+		})
+	}
+}

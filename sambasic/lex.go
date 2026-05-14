@@ -303,6 +303,45 @@ func lexBodyLoop(l *lexer) stateFn {
 		l.emit(itemEOL)
 		return lexStart
 	}
+	if r == '"' {
+		l.backup()
+		return lexString
+	}
 	l.emit(itemLiteral)
 	return lexBodyLoop
+}
+
+// lexString scans a "..."-delimited string literal. Two consecutive "
+// characters inside the string are stored verbatim (the doubled-quote
+// escape that the run-time SQUOTE collapses to a single "). An
+// unterminated string at end-of-line or end-of-input is accepted per
+// E.4 empirical: store all bytes up to but not including the line
+// terminator. Emits one itemString carrying the verbatim bytes
+// including the opening " and (if present) the closing ".
+func lexString(l *lexer) stateFn {
+	// Consume opening quote.
+	if r := l.next(); r != '"' {
+		return l.errorf(`lexString entered without "`)
+	}
+	for {
+		r := l.next()
+		if r == eof || r == '\n' || r == '\r' {
+			if r != eof {
+				l.backup()
+			}
+			l.emit(itemString)
+			return lexBodyLoop
+		}
+		if r == '"' {
+			// Look ahead: another " means doubled-quote escape; consume
+			// both and stay in string mode.
+			if l.peek() == '"' {
+				l.next()
+				continue
+			}
+			// True closing quote.
+			l.emit(itemString)
+			return lexBodyLoop
+		}
+	}
 }
