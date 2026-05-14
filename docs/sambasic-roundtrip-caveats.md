@@ -81,6 +81,14 @@ formatting differences that do NOT indicate a basic-to-text bug:
     line 65279 (our control line), but LLIST's `1 TO 65278` range
     excludes that, so no `?` artefact appears in captures.
 
+  - **Line 0 / lines > 65278 excluded** — the harness invokes
+    `LLIST 1 TO 65278`, not `LLIST 0 TO 65278`. The 0-lower-bound
+    form triggers a ROM slow-path that makes LLIST runtime jump
+    from <15s to 60+s on non-trivial programs, breaking the
+    sweep's timing budget. samfile's lossy mode mirror-skips
+    lines outside `[1, 65278]` so byte parity is preserved at the
+    cost of not testing the 329 corpus files' line-0 content.
+
 Anything else is worth investigating.
 
 ---
