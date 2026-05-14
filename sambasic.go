@@ -297,6 +297,24 @@ func (s *outputState) handleByte(b byte, data []byte, offset, n uint32, remainin
 			return 0, nil
 		case b < 0x20:
 			return s.handleControl(b, data, offset, remaining)
+		case s.lossy && b >= 0xA9 && b <= 0xFE:
+			// POFUDG at ROM 0xDDB4 — inside a string literal (INQUFG=1),
+			// bytes 0xA9..0xFE get SUB 0xA9 before reaching the printer
+			// via OPCHAR. The SAM ROM path is PRGR80 → POUDGH → POUDG
+			// (DEVICE=2, LPRTV=0 no-op) → PUDGS → POFUDG → SUB 0xA9 →
+			// POUDG1 → PRINTMN1 → IOPENT stores OPCHAR = post-SUB value
+			// → ENDOUTP → ENDOP2 → CHBOP sends OPCHAR to channel B →
+			// SENDA → port out. Empirically: byte 0xE9 (BOOT) inside a
+			// string emits as 0x40 (`@`) on the printer; byte 0xFE
+			// would emit as 0x55 (`U`). Verified against SAM81 line
+			// 130 on B-DOS V1.7D.
+			//
+			// Bytes 0x85..0xA8 inside strings pass through as-is
+			// (block-graphics path at DD99 and UDG path at DDB8 leave
+			// OPCHAR holding the original byte) — handled by the
+			// default case below.
+			s.emit(b - 0xA9)
+			return 0, nil
 		default:
 			s.emit(b)
 			return 0, nil
@@ -469,16 +487,39 @@ func (s *outputState) handleControl(b byte, data []byte, offset uint32, remainin
 	}
 	switch b {
 	case 0x06:
-		// PRCOMMA — pad to the next 16-column tab stop, even when
-		// already on one (so two consecutive PRCOMMA bytes pad 32
-		// columns, matching SAM ROM's tab behaviour). Verified
-		// against the LLIST capture of `Allan Stevens Compilation -
-		// Games Disk 1.mgt:SNOOKER` line 10 REM which has `06 06`
-		// after the REM trailing space (col=10): LLIST emits 22
-		// spaces, advancing col 10 → 16 → 32.
-		s.emit(0x20)
-		for s.col%16 != 0 {
-			s.emit(0x20)
+		// PRCOMMA (ROM 0xDDEC) uses screen WINDLHS=0/WINDRHS=31, NOT
+		// the printer PRRHS=79. Two sub-rules:
+		//
+		//   col <= 31: pad to next 16-col tab stop, capped at 32
+		//              (= WINDRHS+1). Math is `(col & 0xF0) + 16`.
+		//   col >  31: PC25 path at 0xDE17 unconditionally emits
+		//              exactly 16 spaces via OPSPLP (DJNZ loop). The
+		//              individual space-emits go through PROM1's
+		//              NLENTRY, so if col crosses 79 mid-loop the
+		//              wrap fires (LPRENT + INDOPEN 6-space indent)
+		//              and the remaining DJNZ iterations continue
+		//              emitting spaces AFTER the indent. That's why
+		//              the SNOOKER line 20 "continuation indent"
+		//              looks like 14 spaces — it's 6 from INDOPEN
+		//              plus the rest of the 16-space PC25 loop.
+		//
+		// Trace via ROM L21577 (PRCOMMA) + L21300+ (PRGR80 path) +
+		// the agent's analysis in this commit's working notes.
+		const windRHS = 31
+		if s.col > windRHS {
+			// PC25: 16 unconditional spaces, individually emit so
+			// wrap can fire mid-loop.
+			for i := 0; i < 16; i++ {
+				s.emit(0x20)
+			}
+		} else {
+			target := (s.col & 0xF0) + 16
+			if target > windRHS+1 {
+				target = windRHS + 1
+			}
+			for s.col < target {
+				s.emit(0x20)
+			}
 		}
 		return 0, nil
 	case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15:
