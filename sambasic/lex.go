@@ -681,13 +681,17 @@ func lexString(l *lexer) stateFn {
 	if r := l.next(); r != '"' {
 		return l.errorf(`lexString entered without "`)
 	}
+	// Resolve {N} escapes inline. We build a fresh byte slice rather than
+	// rely on l.input[l.start:l.pos] because the resolved bytes may
+	// differ from the source bytes.
+	out := []byte{'"'}
 	for {
 		r := l.next()
 		if r == eof || r == '\n' || r == '\r' {
 			if r != eof {
 				l.backup()
 			}
-			l.emit(itemString)
+			l.emitBytes(itemString, out, l.input[l.start:l.pos])
 			return lexBodyLoop
 		}
 		if r == '"' {
@@ -695,12 +699,44 @@ func lexString(l *lexer) stateFn {
 			// both and stay in string mode.
 			if l.peek() == '"' {
 				l.next()
+				out = append(out, '"', '"')
 				continue
 			}
 			// True closing quote.
-			l.emit(itemString)
+			out = append(out, '"')
+			l.emitBytes(itemString, out, l.input[l.start:l.pos])
 			return lexBodyLoop
 		}
+		if r == '{' {
+			// Try to parse {NNN}; if it fails, treat as literal {.
+			savedPos := l.pos
+			digitStart := l.pos
+			ok := false
+			for {
+				r2 := l.next()
+				if r2 == '}' {
+					digits := l.input[digitStart : l.pos-1]
+					if digits != "" {
+						v, err := strconv.ParseUint(digits, 10, 16)
+						if err == nil && v <= 255 {
+							out = append(out, byte(v))
+							ok = true
+						}
+					}
+					break
+				}
+				if r2 == eof || r2 == '\n' || r2 == '\r' || r2 < '0' || r2 > '9' {
+					break
+				}
+			}
+			if !ok {
+				// Rewind to right after `{`, emit `{` as a literal byte.
+				l.pos = savedPos
+				out = append(out, '{')
+			}
+			continue
+		}
+		out = append(out, byte(r))
 	}
 }
 
@@ -708,13 +744,14 @@ func lexString(l *lexer) stateFn {
 // itemLiteral (no keyword/number/string tokenisation inside), then
 // hands back to a small finaliser state.
 func lexComment(l *lexer) stateFn {
+	out := []byte{}
 	for {
 		r := l.next()
 		if r == eof {
 			// Emit literal here (if any), then return a finaliser that
 			// emits the closing EOL and EOF on subsequent invocations.
-			if l.pos > l.start {
-				l.emit(itemLiteral)
+			if len(out) > 0 {
+				l.emitBytes(itemLiteral, out, l.input[l.start:l.pos])
 				return lexCommentEndEOF
 			}
 			l.emit(itemEOL)
@@ -723,8 +760,8 @@ func lexComment(l *lexer) stateFn {
 		}
 		if r == '\n' || r == '\r' {
 			l.backup()
-			if l.pos > l.start {
-				l.emit(itemLiteral)
+			if len(out) > 0 {
+				l.emitBytes(itemLiteral, out, l.input[l.start:l.pos])
 				return lexCommentEndNewline
 			}
 			l.start = l.pos
@@ -735,6 +772,35 @@ func lexComment(l *lexer) stateFn {
 			l.emit(itemEOL)
 			return lexStart
 		}
+		if r == '{' {
+			// Try to parse {NNN}; if it fails, treat as literal {.
+			savedPos := l.pos
+			digitStart := l.pos
+			ok := false
+			for {
+				r2 := l.next()
+				if r2 == '}' {
+					digits := l.input[digitStart : l.pos-1]
+					if digits != "" {
+						v, err := strconv.ParseUint(digits, 10, 16)
+						if err == nil && v <= 255 {
+							out = append(out, byte(v))
+							ok = true
+						}
+					}
+					break
+				}
+				if r2 == eof || r2 == '\n' || r2 == '\r' || r2 < '0' || r2 > '9' {
+					break
+				}
+			}
+			if !ok {
+				l.pos = savedPos
+				out = append(out, '{')
+			}
+			continue
+		}
+		out = append(out, byte(r))
 	}
 }
 

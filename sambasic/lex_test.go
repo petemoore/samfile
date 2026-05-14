@@ -699,6 +699,53 @@ func TestLexProcCall_Placeholder(t *testing.T) {
 	}
 }
 
+func TestLexString_ControlEscape(t *testing.T) {
+	got := collectItems("10 PRINT \"a{7}b\"\n")
+	// Find the itemString and verify its bytes contain the literal 0x07.
+	// (val carries the verbatim source for error messages; bytes carries
+	// the resolved on-disk byte sequence.)
+	var found bool
+	for _, it := range got {
+		if it.typ == itemString {
+			want := []byte{0x22, 'a', 0x07, 'b', 0x22}
+			if bytesEqual(it.bytes, want) {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("string with {7} did not produce expected bytes; got %v", got)
+	}
+}
+
+func TestLexComment_ControlEscape(t *testing.T) {
+	got := collectItems("10 REM x{7}y\n")
+	// Concatenate all body bytes after REM keyword.
+	var tail []byte
+	afterREM := false
+	for _, it := range got {
+		if it.typ == itemKeyword && len(it.bytes) == 1 && it.bytes[0] == byte(REM) {
+			afterREM = true
+			continue
+		}
+		if !afterREM {
+			continue
+		}
+		if it.typ == itemEOL {
+			break
+		}
+		if it.bytes != nil {
+			tail = append(tail, it.bytes...)
+		} else {
+			tail = append(tail, []byte(it.val)...)
+		}
+	}
+	want := []byte{'x', 0x07, 'y'}
+	if !bytesEqual(tail, want) {
+		t.Errorf("REM tail = % X, want % X", tail, want)
+	}
+}
+
 func TestLexControlEscape(t *testing.T) {
 	tests := []struct {
 		name      string
