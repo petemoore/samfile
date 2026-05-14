@@ -131,3 +131,104 @@ func TestLexerPrimitives_Errorf(t *testing.T) {
 		t.Fatalf("got line/col %d/%d, want 5/7", it.line, it.col)
 	}
 }
+
+// collectItems runs the lexer's state machine to completion and returns all
+// items emitted (including the final itemEOF or itemError).
+func collectItems(input string) []item {
+	l := lex(input)
+	l.state = lexStart
+	var items []item
+	for {
+		it := l.nextItem()
+		items = append(items, it)
+		if it.typ == itemEOF || it.typ == itemError {
+			return items
+		}
+	}
+}
+
+func TestLexLineNumber(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want []item
+	}{
+		{
+			name: "simple",
+			in:   "10\n",
+			want: []item{
+				{typ: itemLineNumber, val: "10"},
+				{typ: itemEOL},
+				{typ: itemEOF},
+			},
+		},
+		{
+			name: "leading whitespace",
+			in:   "   42\n",
+			want: []item{
+				{typ: itemLineNumber, val: "42"},
+				{typ: itemEOL},
+				{typ: itemEOF},
+			},
+		},
+		{
+			name: "leading zeros",
+			in:   "0010\n",
+			want: []item{
+				{typ: itemLineNumber, val: "0010"},
+				{typ: itemEOL},
+				{typ: itemEOF},
+			},
+		},
+		{
+			name: "max",
+			in:   "65279\n",
+			want: []item{
+				{typ: itemLineNumber, val: "65279"},
+				{typ: itemEOL},
+				{typ: itemEOF},
+			},
+		},
+		{
+			name: "above max",
+			in:   "65280\n",
+			want: []item{
+				{typ: itemError, val: "line number out of range: 65280"},
+			},
+		},
+		{
+			name: "zero",
+			in:   "0\n",
+			want: []item{
+				{typ: itemError, val: "line number 0 is reserved"},
+			},
+		},
+		{
+			name: "no digits",
+			in:   "PRINT\n",
+			want: []item{
+				{typ: itemError, val: "expected line number"},
+			},
+		},
+		{
+			name: "empty input",
+			in:   "",
+			want: []item{
+				{typ: itemEOF},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d items, want %d: got=%v", len(got), len(tt.want), got)
+			}
+			for i, w := range tt.want {
+				if got[i].typ != w.typ || got[i].val != w.val {
+					t.Errorf("item[%d] = %+v, want typ=%v val=%q", i, got[i], w.typ, w.val)
+				}
+			}
+		})
+	}
+}
