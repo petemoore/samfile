@@ -20,6 +20,19 @@ import (
 // path differs.
 var corpusDir = filepath.Join(os.Getenv("HOME"), "sam-corpus", "disks")
 
+// excludedDisks lists corpus disks whose BASIC content is known to
+// be non-stock or otherwise unreachable from the stock SAM BASIC
+// editor (bucket 4 in docs/sambasic-roundtrip-caveats.md). Each
+// entry must cite the SimCoupé observation that justifies the
+// exclusion — see the triage-process section of the caveats doc.
+//
+// The map key is the .mgt filename as returned by filepath.Base().
+// The map value is the SimCoupé observation that confirms the disk
+// is not stock content.
+var excludedDisks = map[string]string{
+	"18 Rated Poker for 512k (19xx) (Supplement Software).mgt": "SimCoupé: program crashes immediately on LOAD — disk content is not reachable from the stock SAM BASIC editor. (Supporting evidence: FILE3 line 7256 stores `call` as 4 literal bytes 63 61 6C 6C where TOKMAIN would have produced the 1-byte CALL keyword 0xE4.)",
+}
+
 // truncateAtProgEnd walks the SAM BASIC line-header chain to find the
 // true 0xFF program-end sentinel. The naive `bytes.IndexByte(body,
 // 0xFF)` is wrong because 0xFF is the prefix of every 2-byte keyword.
@@ -73,8 +86,14 @@ func TestCorpusRoundTrip(t *testing.T) {
 	}
 
 	var results []corpusResult
+	excluded := 0
 	for _, diskPath := range disks {
 		diskName := filepath.Base(diskPath)
+		if reason, skip := excludedDisks[diskName]; skip {
+			t.Logf("excluding disk %q: %s", diskName, reason)
+			excluded++
+			continue
+		}
 		di, err := samfile.Load(diskPath)
 		if err != nil {
 			t.Logf("load %s: %v", diskPath, err)
@@ -86,6 +105,9 @@ func TestCorpusRoundTrip(t *testing.T) {
 			}
 			results = append(results, roundTripOne(di, fe, diskName))
 		}
+	}
+	if excluded > 0 {
+		t.Logf("excluded %d disk(s) per excludedDisks", excluded)
 	}
 
 	counts := map[string]int{}
