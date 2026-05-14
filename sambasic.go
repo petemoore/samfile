@@ -64,11 +64,57 @@ func (basic *SAMBasic) Output() error {
 		index += 4
 		fmt.Printf("%5d ", lineNo)
 		spaceBefore := true
+		// inString tracks whether the body cursor is currently between
+		// a `"` opening quote and its closing `"`. Per grammar §5 and
+		// the SAM ROM (TOKMAIN's quote-scanner at L15900 reads bytes
+		// directly via LD A,(DE), bypassing GTCH1), bytes inside a
+		// string literal are stored verbatim — control bytes, keyword-
+		// range bytes (0x85..0xF6), 0x0E, and even 0xFF are all just
+		// bytes that happen to be inside quotes. Empirical confirmation
+		// from SimCoupé LLIST capture of `Allan Stevens - 50 Programs
+		// to Play and Write.mgt:DANCER` line 60: the disk has
+		// `... 22 89 8F 86 22 ...` and LLIST emits those three middle
+		// bytes verbatim (rendered on screen as the user-defined
+		// graphics making up the dancer's torso).
+		inString := false
 		for c := uint16(0); c < lineLen; c++ {
 			if index+uint32(c) >= n {
 				return fmt.Errorf("basic-to-text: truncated input: line body for line %d extends past input (offset %d, length %d)", lineNo, index+uint32(c), n)
 			}
 			b := basic.Data[index+uint32(c)]
+			if inString {
+				switch {
+				case b == 0x0d:
+					// Line terminator implicitly closes an unterminated
+					// string (grammar §5: "terminated implicitly by 0x0D
+					// if no closing `"` is found").
+					fmt.Println("")
+					spaceBefore = false
+					inString = false
+				case b == 0x22:
+					// `""` is the doubled-quote escape (still inside the
+					// string); a lone `"` is the closing delimiter.
+					if c+1 < lineLen && basic.Data[index+uint32(c)+1] == 0x22 {
+						_, _ = os.Stdout.Write([]byte{'"', '"'})
+						c++
+					} else {
+						_, _ = os.Stdout.Write([]byte{'"'})
+						inString = false
+						spaceBefore = false
+					}
+				case b < 0x20:
+					// Control bytes inside strings: emit as {N} for
+					// readability. text-to-basic's lexString already
+					// understands the escape.
+					fmt.Printf("{%v}", int(b))
+				default:
+					// Everything else verbatim, including 0x85..0xF6
+					// (which would be keyword tokens OUTSIDE a string),
+					// 0xFF, and high-bit graphic chars 0x80..0xFF.
+					_, _ = os.Stdout.Write(basic.Data[index+uint32(c) : index+uint32(c)+1])
+				}
+				continue
+			}
 			switch {
 			case b == 0xff:
 				c++
@@ -89,6 +135,10 @@ func (basic *SAMBasic) Output() error {
 				c += 5
 			case b == 0x0d:
 				fmt.Println("")
+				spaceBefore = false
+			case b == 0x22:
+				_, _ = os.Stdout.Write([]byte{'"'})
+				inString = true
 				spaceBefore = false
 			case b < 0x20:
 				fmt.Printf("{%v}", int(b))
