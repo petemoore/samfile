@@ -17,6 +17,26 @@ import (
 // path differs.
 var corpusDir = filepath.Join(os.Getenv("HOME"), "sam-corpus", "disks")
 
+// truncateAtProgEnd walks the SAM BASIC line-header chain to find the
+// true 0xFF program-end sentinel. The naive `bytes.IndexByte(body,
+// 0xFF)` is wrong because 0xFF is the prefix of every 2-byte keyword.
+// Format: each line is [MSB LSB LenLo LenHi] + body bytes + 0x0D, then
+// the next line, terminated by 0xFF.
+func truncateAtProgEnd(body []byte) []byte {
+	pos := 0
+	for pos < len(body) {
+		if body[pos] == 0xFF {
+			return body[:pos+1]
+		}
+		if pos+3 >= len(body) {
+			return body
+		}
+		lineLen := int(body[pos+2]) | int(body[pos+3])<<8
+		pos += 4 + lineLen
+	}
+	return body
+}
+
 // maskProcFnPlaceholders returns a copy of body with bytes 3-5 of every
 // `0E FD FD ??` and `0E FE FE ??` 6-byte buffer zeroed. These bytes are
 // re-patched by LDPROG at LOAD time (grammar spec §6.5) and are not
@@ -132,10 +152,7 @@ func roundTripOne(di *samfile.DiskImage, fe *samfile.FileEntry, diskName string)
 		return
 	}
 	gotBytes := got.ProgBytes()
-	wantBytes := f.Body
-	if idx := bytes.IndexByte(wantBytes, 0xFF); idx >= 0 {
-		wantBytes = wantBytes[:idx+1]
-	}
+	wantBytes := truncateAtProgEnd(f.Body)
 	if bytes.Equal(maskProcFnPlaceholders(gotBytes), maskProcFnPlaceholders(wantBytes)) {
 		r.outcome = "match"
 		return
