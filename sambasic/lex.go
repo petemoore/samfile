@@ -355,9 +355,23 @@ func lexNumber(l *lexer) stateFn {
 		}
 		return emitNumberFP(l)
 	}
-	// Decimal integer.
+	// Decimal integer / decimal-with-fraction / scientific.
 	const digits = "0123456789"
 	l.acceptRun(digits)
+	if l.peek() == '.' {
+		l.next()
+		l.acceptRun(digits)
+	}
+	if r := l.peek(); r == 'e' || r == 'E' {
+		l.next()
+		if r := l.peek(); r == '+' || r == '-' {
+			l.next()
+		}
+		if !l.accept(digits) {
+			return l.errorf("bad number syntax: %q", l.input[l.start:l.pos])
+		}
+		l.acceptRun(digits)
+	}
 	if r := l.peek(); r != eof && (isAlpha(r) || r == '_') {
 		l.next()
 		return l.errorf("bad number syntax: %q", l.input[l.start:l.pos])

@@ -487,3 +487,47 @@ func TestLexNumber_Decimal(t *testing.T) {
 		})
 	}
 }
+
+func TestLexNumber_Scientific(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		wantVal string
+		wantErr string
+	}{
+		{"basic", "10 PRINT 1E5\n", "1E5", ""},
+		{"with-sign", "10 PRINT 1E+5\n", "1E+5", ""},
+		{"negative-exp", "10 PRINT 1E-3\n", "1E-3", ""},
+		{"with-fraction", "10 PRINT 1.5E3\n", "1.5E3", ""},
+		{"lowercase-e", "10 PRINT 1e5\n", "1e5", ""},
+		{"trailing-letter", "10 PRINT 1E5G\n", "", `bad number syntax: "1E5G"`},
+		{"incomplete", "10 PRINT 1E:PRINT 2\n", "", `bad number syntax: "1E"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			if tt.wantErr != "" {
+				if got[len(got)-1].typ != itemError {
+					t.Fatalf("expected itemError, got %v", got)
+				}
+				if got[len(got)-1].val != tt.wantErr {
+					t.Errorf("error = %q, want %q", got[len(got)-1].val, tt.wantErr)
+				}
+				return
+			}
+			var num *item
+			for i := range got {
+				if got[i].typ == itemNumber {
+					num = &got[i]
+					break
+				}
+			}
+			if num == nil {
+				t.Fatalf("no itemNumber; got %v", got)
+			}
+			if num.val != tt.wantVal {
+				t.Errorf("val = %q, want %q", num.val, tt.wantVal)
+			}
+		})
+	}
+}
