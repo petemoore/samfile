@@ -542,7 +542,6 @@ func lexKeyword(l *lexer) stateFn {
 		}
 		return lexBodyLoop
 	}
-	_ = canonical // not used in this task; later tasks (BIN, REM, INK) will dispatch on it
 	// Keyword match: jump pos to endPos, walking the consumed range to
 	// keep col/line tracking accurate.
 	l.advanceColOver(l.pos, endPos)
@@ -553,6 +552,51 @@ func lexKeyword(l *lexer) stateFn {
 		l.col++
 	}
 	l.emitBytes(itemKeyword, kwBytes, l.input[l.start:l.pos])
+	if canonical == "BIN" {
+		return lexBinaryDigits
+	}
+	return lexBodyLoop
+}
+
+// lexBinaryDigits scans a run of binary digits (0 or 1) following a BIN
+// keyword and emits an itemNumber with a 5-byte FP form. The run is
+// limited to 16 bits per grammar spec §4.1.
+func lexBinaryDigits(l *lexer) stateFn {
+	// Skip any leading spaces between BIN and the digits. (The keyword
+	// trailing-space-drop already consumed one space; additional ones
+	// stay in the buffer.)
+	for l.pos < len(l.input) && l.input[l.pos] == ' ' {
+		l.pos++
+		l.start = l.pos
+		l.col++
+		l.startLine = l.line
+		l.startCol = l.col
+	}
+	const binDigits = "01"
+	if !l.accept(binDigits) {
+		return l.errorf("expected binary digits after BIN")
+	}
+	l.acceptRun(binDigits)
+	literal := l.input[l.start:l.pos]
+	if len(literal) > 16 {
+		return l.errorf("binary literal too large")
+	}
+	if r := l.peek(); r != eof && (isAlpha(r) || r == '_') {
+		l.next()
+		return l.errorf("bad number syntax: %q", l.input[l.start:l.pos])
+	}
+	var v uint64
+	for _, c := range literal {
+		v = (v << 1) | uint64(c-'0')
+	}
+	var fp [5]byte
+	fp[2] = byte(v & 0xFF)
+	fp[3] = byte((v >> 8) & 0xFF)
+	out := make([]byte, 0, len(literal)+6)
+	out = append(out, []byte(literal)...)
+	out = append(out, 0x0E)
+	out = append(out, fp[:]...)
+	l.emitBytes(itemNumber, out, literal)
 	return lexBodyLoop
 }
 

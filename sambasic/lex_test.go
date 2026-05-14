@@ -531,3 +531,50 @@ func TestLexNumber_Scientific(t *testing.T) {
 		})
 	}
 }
+
+func TestLexNumber_Binary(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		wantVal string
+		wantFP  [5]byte
+		wantErr string
+	}{
+		{"basic", "10 PRINT BIN 1010\n", "1010", [5]byte{0x00, 0x00, 0x0A, 0x00, 0x00}, ""},
+		{"zero", "10 PRINT BIN 0\n", "0", [5]byte{0x00, 0x00, 0x00, 0x00, 0x00}, ""},
+		{"max-16-bits", "10 PRINT BIN 1111111111111111\n", "1111111111111111", [5]byte{0x00, 0x00, 0xFF, 0xFF, 0x00}, ""},
+		{"too-many-bits", "10 PRINT BIN 11111111111111111\n", "", [5]byte{}, "binary literal too large"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			if tt.wantErr != "" {
+				if got[len(got)-1].typ != itemError {
+					t.Fatalf("expected itemError, got %v", got)
+				}
+				if got[len(got)-1].val != tt.wantErr {
+					t.Errorf("error = %q, want %q", got[len(got)-1].val, tt.wantErr)
+				}
+				return
+			}
+			var num *item
+			for i := range got {
+				if got[i].typ == itemNumber {
+					num = &got[i]
+					break
+				}
+			}
+			if num == nil {
+				t.Fatalf("no itemNumber; got %v", got)
+			}
+			if num.val != tt.wantVal {
+				t.Errorf("val = %q, want %q", num.val, tt.wantVal)
+			}
+			var got5 [5]byte
+			copy(got5[:], num.bytes[len(num.bytes)-5:])
+			if got5 != tt.wantFP {
+				t.Errorf("FP bytes = % X, want % X", got5, tt.wantFP)
+			}
+		})
+	}
+}
