@@ -157,6 +157,16 @@ func (l *lexer) errorf(format string, args ...any) stateFn {
 }
 
 // nextItem drives the state machine inline and returns the next item.
+//
+// IMPORTANT for state-function authors: state functions must emit at
+// most 2 items per invocation (the items channel buffer size). A state
+// function that wants to emit more must emit one item and return either
+// itself or another state function — nextItem will drain the channel
+// before invoking the returned state. The canonical pattern is in
+// lexBodyLoop: read one rune, emit at most one item, return self. The
+// alternative would be to run the state machine in a goroutine with an
+// unbuffered (or larger-buffer) channel; we deliberately don't, to
+// keep the lexer single-goroutine and lifecycle-simple.
 func (l *lexer) nextItem() item {
 	for {
 		select {
