@@ -113,15 +113,20 @@ func (basic *SAMBasic) Output() error {
 		return fmt.Errorf("basic-to-text: empty input; expected SAM BASIC bytes on stdin")
 	}
 	eppc := basic.EPPC
-	if eppc == 0 && !basic.Lossy {
+	if eppc == 0 {
 		eppc = 1
 	}
-	// In lossy mode, eppc stays at 0 unless explicitly set. This
-	// matches the ROM at 0x0681 (`LD (EPPC),HL ;NEW EPPC=FIRST
-	// LISTED LINE`) which sets EPPC = the lower bound of the LIST
-	// range, not the first actual line. Our LLIST-capture harness
-	// uses `LLIST 0 TO 65278`, so EPPC=0: the `>` cursor appears on
-	// line 0 if it exists, otherwise nowhere.
+	// Lossy mode emulates the ROM's `LLIST 1 TO 65278` invocation
+	// used by our LLIST-capture harness. ROM at 0x0681 sets EPPC to
+	// the lower bound of the LIST range (so the `>` cursor appears
+	// on line 1 if it exists). Lines outside the [1, 65278] range
+	// are not emitted — we skip line 0 here so samfile output
+	// matches the LLIST capture byte-for-byte. (LLIST 0 TO 65278
+	// would include line 0 but is unusable in our harness: it
+	// triggers a ROM slow-path that makes LLIST take >60s on
+	// non-trivial programs, vs <15s for `LLIST 1 TO 65278`.)
+	const skipLineBelow = uint16(1)
+	const skipLineAbove = uint16(65278)
 	s := &outputState{
 		out:   os.Stdout,
 		rhs:   79,
@@ -143,6 +148,13 @@ func (basic *SAMBasic) Output() error {
 		lineNo := uint16(basic.Data[index])<<8 | uint16(basic.Data[index+1])
 		lineLen := uint16(basic.Data[index+2]) | uint16(basic.Data[index+3])<<8
 		index += 4
+
+		if basic.Lossy && (lineNo < skipLineBelow || lineNo > skipLineAbove) {
+			// Skip lines outside the [1, 65278] LLIST range that our
+			// harness uses. Doesn't fire in faithful mode.
+			index += uint32(lineLen)
+			continue
+		}
 
 		s.startLine(lineNo)
 
