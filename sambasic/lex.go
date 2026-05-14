@@ -340,6 +340,18 @@ func lexBodyLoop(l *lexer) stateFn {
 		l.stmtInitial = false
 		return lexNumber
 	}
+	if r == '.' {
+		// Leading-dot decimal: only if a digit follows.
+		if l.pos < len(l.input) && l.input[l.pos] >= '0' && l.input[l.pos] <= '9' {
+			l.backup()
+			l.stmtInitial = false
+			return lexNumber
+		}
+		// Otherwise just a literal '.'.
+		l.emit(itemLiteral)
+		l.stmtInitial = false
+		return lexBodyLoop
+	}
 	if r == '{' {
 		l.backup()
 		l.stmtInitial = false

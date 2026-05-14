@@ -488,6 +488,35 @@ func TestLexNumber_Decimal(t *testing.T) {
 	}
 }
 
+func TestLexNumber_LeadingDot(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		wantVal string
+	}{
+		{"leading-dot", "10 PRINT .5\n", ".5"},
+		{"leading-dot-int-part", "10 PRINT .32\n", ".32"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			var num *item
+			for i := range got {
+				if got[i].typ == itemNumber {
+					num = &got[i]
+					break
+				}
+			}
+			if num == nil {
+				t.Fatalf("no itemNumber emitted; got %v", got)
+			}
+			if num.val != tt.wantVal {
+				t.Errorf("val = %q, want %q", num.val, tt.wantVal)
+			}
+		})
+	}
+}
+
 func TestLexNumber_Scientific(t *testing.T) {
 	tests := []struct {
 		name    string
