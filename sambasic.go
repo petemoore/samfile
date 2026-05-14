@@ -481,7 +481,11 @@ func isAlpha(b byte) bool {
 //	0x00..0x05  -> `?`  (PRQUERY)
 //	0x06        -> pad with spaces to next 16-column tab stop (PRCOMMA)
 //	0x07        -> `?`  (PRQUERY in CCPTB table)
-//	0x08..0x0C  -> `?`  (cursor / delete control codes emit `?` on printer)
+//	0x08..0x09  -> `?`  (CURLF/CURRT — placeholder, may need ROM lookup
+//	               if a future DIFFER fires)
+//	0x0A        -> CR LF  (CURDN at ROM 0xDE98 calls PRENTER which on
+//	               printer paths to LPRENT → emit CR LF)
+//	0x0B..0x0C  -> `?`  (CURUP/PRDELL — placeholder)
 //	0x0D        -> CR LF  (caller normally hits this via the `b == 0x0d` switch
 //	               branch; this case is here defensively)
 //	0x0E        -> skip 5 FP bytes (also handled in the main switch)
@@ -539,6 +543,16 @@ func (s *outputState) handleControl(b byte, data []byte, offset uint32, remainin
 				s.emit(0x20)
 			}
 		}
+		return 0, nil
+	case 0x0a:
+		// CURDN (0xDE98) calls PRENTER (0xDEA2). On the printer path
+		// (CY set under LPRINT/LLIST), PRENTER jumps to LPRENT (0xDEC3)
+		// which emits CR + LF (LF only if AFTERCR != 0; default 0x0A).
+		// No continuation indent — LPRENT just resets PRPOSN to 0.
+		// Reuse endLine() which emits CR LF and resets the column,
+		// but do NOT call startLine (we're not starting a new BASIC
+		// line, just wrapping mid-line on the printer).
+		s.endLine()
 		return 0, nil
 	case 0x10, 0x11, 0x12, 0x13, 0x14, 0x15:
 		// CC1OP — consume control + 1 operand byte, emit nothing.
