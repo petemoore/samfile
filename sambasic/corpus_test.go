@@ -40,34 +40,6 @@ func truncateAtProgEnd(body []byte) []byte {
 	return body
 }
 
-// maskProcFnPlaceholders returns a copy of body with bytes 3-5 of every
-// `0E FD FD ??` and `0E FE FE ??` 6-byte buffer zeroed. These bytes are
-// re-patched by LDPROG at LOAD time (grammar spec §6.5) and are not
-// reproducible from text input alone.
-func maskProcFnPlaceholders(body []byte) []byte {
-	out := make([]byte, len(body))
-	copy(out, body)
-	for i := 0; i+5 < len(out); i++ {
-		if out[i] != 0x0E {
-			continue
-		}
-		if out[i+1] == 0xFD && out[i+2] == 0xFD {
-			out[i+3] = 0x00
-			out[i+4] = 0x00
-			out[i+5] = 0x00
-			i += 5
-			continue
-		}
-		if out[i+1] == 0xFE && out[i+2] == 0xFE {
-			out[i+3] = 0x00
-			out[i+4] = 0x00
-			out[i+5] = 0x00
-			i += 5
-		}
-	}
-	return out
-}
-
 type corpusResult struct {
 	disk    string
 	file    string
@@ -75,15 +47,17 @@ type corpusResult struct {
 	detail  string
 
 	// Populated only for "diverged" outcomes.
-	divOffset    int    // first differing byte offset
-	divGot       byte   // byte in masked got at divOffset (0 if past end)
-	divWant      byte   // byte in masked want at divOffset (0 if past end)
-	divGotLen    int    // total length of masked got
-	divWantLen   int    // total length of masked want
-	divCtxBefore []byte // up to 4 bytes of want immediately before divOffset
-	divCtxAfter  []byte // up to 4 bytes of want immediately after divOffset
-	divShape     string // shape classification (extra-space-around-keyword etc.)
-	divSignature string // full signature string used as the category key
+	divOffset    int                 // offset of first mismatch (from Conform)
+	divKind      sambasic.SegmentKind // segment kind at the mismatch
+	divDesc      string              // human-readable mismatch description
+	divGot       byte                // byte in got at divOffset (0 if past end)
+	divWant      byte                // byte in want at divOffset (0 if past end)
+	divGotLen    int                 // total length of got
+	divWantLen   int                 // total length of want
+	divCtxBefore []byte              // up to 4 bytes of want immediately before divOffset
+	divCtxAfter  []byte              // up to 4 bytes of want immediately after divOffset
+	divShape     string              // shape classification (extra-space-around-keyword etc.)
+	divSignature string              // full signature string used as the category key
 }
 
 func TestCorpusRoundTrip(t *testing.T) {
@@ -164,7 +138,7 @@ func roundTripOne(di *samfile.DiskImage, fe *samfile.FileEntry, diskName string)
 		r.detail = err.Error()
 		return
 	}
-	got, err := sambasic.ParseTextString(text)
+	got, schema, err := sambasic.ParseTextSchema(text)
 	if err != nil {
 		r.outcome = "parse-error"
 		r.detail = err.Error()
@@ -172,15 +146,14 @@ func roundTripOne(di *samfile.DiskImage, fe *samfile.FileEntry, diskName string)
 	}
 	gotBytes := got.ProgBytes()
 	wantBytes := truncateAtProgEnd(f.Body)
-	if bytes.Equal(maskProcFnPlaceholders(gotBytes), maskProcFnPlaceholders(wantBytes)) {
+	mismatches := sambasic.Conform(wantBytes, schema)
+	if len(mismatches) == 0 {
 		r.outcome = "match"
 		return
 	}
 	r.outcome = "diverged"
-	r.detail = fmt.Sprintf("got %d bytes, want %d bytes", len(gotBytes), len(wantBytes))
-	mg := maskProcFnPlaceholders(gotBytes)
-	mw := maskProcFnPlaceholders(wantBytes)
-	classifyDivergence(&r, mg, mw)
+	r.detail = fmt.Sprintf("got %d bytes, want %d bytes, %d mismatches", len(gotBytes), len(wantBytes), len(mismatches))
+	classifyDivergence(&r, gotBytes, wantBytes, mismatches)
 	return
 }
 
@@ -191,13 +164,31 @@ func isKeywordByte(b byte) bool {
 	return b >= 0x85 && b <= 0xF6
 }
 
-// classifyDivergence fills the divergence fields of r given the masked
-// got and want byte slices. It is defensive: if either slice is empty
-// the result is "length-mismatch" / "other".
-func classifyDivergence(r *corpusResult, got, want []byte) {
+// classifyDivergence fills the divergence fields of r using the first
+// Conform mismatch. The segment kind + a small context fingerprint
+// drives the categorisation.
+func classifyDivergence(r *corpusResult, got, want []byte, mismatches []sambasic.Mismatch) {
 	r.divGotLen = len(got)
 	r.divWantLen = len(want)
-	off := firstDiff(got, want)
+	first := mismatches[0]
+	r.divKind = first.SegmentKind
+	r.divDesc = first.Description
+
+	// Anchor the offset to the first byte that actually differs between
+	// got and want within the mismatching segment. Fall back to the
+	// segment's offset if got/want match exactly there (e.g. length
+	// mismatch flagged but no byte-level diff yet).
+	off := first.Offset
+	if off < len(got) && off < len(want) && got[off] == want[off] {
+		// Walk forward looking for first byte difference up to a small bound.
+		for off+1 < len(got) && off+1 < len(want) && got[off+1] == want[off+1] {
+			off++
+		}
+		// Move one past the last equal byte.
+		if off+1 <= len(got) && off+1 <= len(want) {
+			off++
+		}
+	}
 	r.divOffset = off
 
 	// Context window from want.
@@ -205,12 +196,11 @@ func classifyDivergence(r *corpusResult, got, want []byte) {
 	if startCtx < 0 {
 		startCtx = 0
 	}
-	r.divCtxBefore = append([]byte(nil), want[startCtx:off]...)
-	endCtx := off + 1 + 4
-	if off >= len(want) {
-		// off may equal len(want) when got is longer; clip.
-		r.divCtxAfter = nil
-	} else {
+	if startCtx < len(want) && off <= len(want) {
+		r.divCtxBefore = append([]byte(nil), want[startCtx:off]...)
+	}
+	if off < len(want) {
+		endCtx := off + 1 + 4
 		if endCtx > len(want) {
 			endCtx = len(want)
 		}
@@ -229,22 +219,6 @@ func classifyDivergence(r *corpusResult, got, want []byte) {
 
 	r.divShape = classifyShape(got, want, off)
 	r.divSignature = buildSignature(r)
-}
-
-// firstDiff returns the index of the first differing byte between a and
-// b. If one is a strict prefix of the other, it returns the length of
-// the shorter.
-func firstDiff(a, b []byte) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	return n
 }
 
 // classifyShape inspects the byte at off in got vs want (plus a small
@@ -368,13 +342,15 @@ func isAtLineHeader(s []byte, off int) bool {
 	return false
 }
 
-// buildSignature combines the shape and a small fingerprint of the
-// context bytes into a stable category key. The context bytes are
-// rendered as their "kind" (KW, FF, FP, SP, COLON, NL, CR, NUM, ALPHA,
-// or hex) so that signatures group similar but not byte-identical
-// diffs.
+// buildSignature combines the segment kind, shape and a small
+// fingerprint of the context bytes into a stable category key. The
+// context bytes are rendered as their "kind" (KW, FF, FP, SP, COLON,
+// NL, CR, NUM, ALPHA, or hex) so signatures group similar but not
+// byte-identical diffs.
 func buildSignature(r *corpusResult) string {
 	var sb strings.Builder
+	sb.WriteString(r.divKind.String())
+	sb.WriteString(" | ")
 	sb.WriteString(r.divShape)
 	sb.WriteString(" | got=")
 	sb.WriteString(kindOf(r.divGot))
@@ -619,6 +595,8 @@ func writeCategorisedReport(t *testing.T, results []corpusResult) {
 				ex["ctx_before"] = hexCtx(r.divCtxBefore)
 				ex["ctx_after"] = hexCtx(r.divCtxAfter)
 				ex["shape"] = r.divShape
+				ex["segment_kind"] = r.divKind.String()
+				ex["mismatch_desc"] = r.divDesc
 			} else {
 				ex["detail"] = r.detail
 			}
