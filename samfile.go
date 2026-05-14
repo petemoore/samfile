@@ -875,6 +875,43 @@ func pageForm3Byte(value uint32) [3]byte {
 	return [3]byte{page, byte(offset & 0xFF), byte(offset >> 8)}
 }
 
+// AddBasicFileBody adds a SAM BASIC file whose body bytes are given
+// verbatim. body must be the complete on-disk body: program lines +
+// 0xFF terminator + numeric vars + gap + string/array vars. The three
+// offsets locate the boundaries between those sections (bytes from
+// body start, matching sambasic.File.NVARSOffset / NUMENDOffset /
+// SAVARSOffset semantics). startLine sets the auto-RUN line; pass
+// 0xFFFF for no auto-run.
+//
+// Used by tools that splice extra lines into an existing file's
+// body without re-tokenising, e.g. the LLIST-capture harness in
+// ~/git/sam-aarch64/tools/llist-capture.
+func (di *DiskImage) AddBasicFileBody(name string, body []byte,
+	nvarsOff, numendOff, savarsOff uint32, startLine uint16) error {
+	fe := &FileEntry{
+		Type:                   FT_SAM_BASIC,
+		StartAddressPage:       0,
+		StartAddressPageOffset: 0x9CD5,
+		MGTFlags:               0x20,
+	}
+	if startLine == 0xFFFF {
+		fe.ExecutionAddressDiv16K = 0xFF
+		fe.ExecutionAddressMod16K = 0xFFFF
+		fe.SAMBASICStartLine = 0xFFFF
+	} else {
+		fe.ExecutionAddressDiv16K = 0x00
+		fe.ExecutionAddressMod16K = startLine
+		fe.SAMBASICStartLine = startLine
+	}
+	nvars := pageForm3Byte(nvarsOff)
+	numend := pageForm3Byte(numendOff)
+	savars := pageForm3Byte(savarsOff)
+	copy(fe.FileTypeInfo[0:3], nvars[:])
+	copy(fe.FileTypeInfo[3:6], numend[:])
+	copy(fe.FileTypeInfo[6:9], savars[:])
+	return di.addFile(name, fe, body)
+}
+
 func (di *DiskImage) AddBasicFile(name string, file *sambasic.File) error {
 	body := file.Bytes()
 

@@ -7,7 +7,8 @@ Manipulate files in SAM Coupé floppy disk images.
 
   Usage:
     samfile add -i IMAGE -f FILE -c -l LOAD_ADDRESS [-e EXECUTION_ADDRESS]
-    samfile basic-to-text
+    samfile basic-to-text [--lossy]
+    samfile text-to-basic
     samfile cat -i IMAGE -f FILE
     samfile extract -i IMAGE [-t TARGET]
     samfile ls -i IMAGE
@@ -19,6 +20,10 @@ Manipulate files in SAM Coupé floppy disk images.
                           image file.
     basic-to-text         Read a SAM Basic encoded file from stdin and output
                           plain text listing to stdout.
+    text-to-basic         Read plain-text SAM BASIC source from stdin and
+                          output the tokenised program body (suitable for
+                          piping into 'samfile basic-to-text' to verify
+                          the round-trip).
     cat                   Output a single file from a SAM Disk image file to
                           stdout.
     extract               Extracts all files from a SAM Disk image file to a
@@ -39,6 +44,16 @@ Manipulate files in SAM Coupé floppy disk images.
     -e EXECUTION_ADDRESS  Execution address of code file on the SAM Disk image.
     --help                Display this help text.
     --version             Display the release version of samfile.
+    --lossy               (basic-to-text) Emit the byte-for-byte
+                          equivalent of the SAM ROM's LLIST routine
+                          (matches stream 3 / printer output). Filters
+                          attribute control sequences (INK, PAPER,
+                          BRIGHT, etc.), wraps at column 80 with a
+                          6-space continuation indent, terminates lines
+                          with CR LF, and emits '>' after the first
+                          line's number. Use for SAM ROM oracle
+                          comparisons; without --lossy the output is
+                          round-trip-faithful through text-to-basic.
 
   Examples:
 

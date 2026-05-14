@@ -11,7 +11,7 @@ var keywordTable = [...]string{
 	"FN",          // 0x42
 	"BIN",         // 0x43
 	"XMOUSE",      // 0x44
-	"YHOUSE",      // 0x45
+	"YMOUSE",      // 0x45
 	"XPEN",        // 0x46
 	"YPEN",        // 0x47
 	"RAMTOP",      // 0x48
@@ -40,7 +40,7 @@ var keywordTable = [...]string{
 	"USR",         // 0x5F
 	"IN",          // 0x60
 	"PEEK",        // 0x61
-	"LPEEK",       // 0x62
+	"DPEEK",       // 0x62
 	"DVAR",        // 0x63
 	"SVAR",        // 0x64
 	"BUTTON",      // 0x65
@@ -189,6 +189,15 @@ var keywordTable = [...]string{
 	"POW",         // 0xF4
 	"BOOM",        // 0xF5
 	"ZOOM",        // 0xF6
+	"",            // 0xF7  reserved
+	"",            // 0xF8  reserved
+	"",            // 0xF9  reserved
+	"",            // 0xFA  reserved
+	"",            // 0xFB  reserved
+	"",            // 0xFC  reserved
+	"",            // 0xFD  reserved
+	"",            // 0xFE  reserved
+	"INK",         // 0xFF  INK→PEN shim (grammar §3.3); finalise rewrites to 0xA1
 }
 
 const (
@@ -306,6 +315,11 @@ const (
 	POW        SingleByteKeyword = 0xF4
 	BOOM       SingleByteKeyword = 0xF5
 	ZOOM       SingleByteKeyword = 0xF6
+	// INK is the editor's compat shim for Spectrum users: GETTOKEN matches
+	// "INK" at table slot 0xFF, then TOKMAIN rewrites the token to PEN
+	// (0xA1) before storing. See grammar spec §3.3. The 0xFF byte never
+	// appears in stored program text — finalise() applies the rewrite.
+	INK SingleByteKeyword = 0xFF
 )
 
 const (
@@ -319,7 +333,7 @@ const (
 	FN_2B      TwoByteKeyword = 0x42
 	BIN_2B     TwoByteKeyword = 0x43
 	XMOUSE_2B  TwoByteKeyword = 0x44
-	YHOUSE_2B  TwoByteKeyword = 0x45
+	YMOUSE_2B  TwoByteKeyword = 0x45
 	XPEN_2B    TwoByteKeyword = 0x46
 	YPEN_2B    TwoByteKeyword = 0x47
 	RAMTOP_2B  TwoByteKeyword = 0x48
@@ -344,7 +358,7 @@ const (
 	USR_2B     TwoByteKeyword = 0x5F
 	IN_2B      TwoByteKeyword = 0x60
 	PEEK_2B    TwoByteKeyword = 0x61
-	LPEEK_2B   TwoByteKeyword = 0x62
+	DPEEK_2B   TwoByteKeyword = 0x62
 	DVAR_2B    TwoByteKeyword = 0x63
 	SVAR_2B    TwoByteKeyword = 0x64
 	BUTTON_2B  TwoByteKeyword = 0x65

@@ -18,6 +18,8 @@ Confidence prefix:
 
 ## 1. Overview
 
+**Character set.** SAM BASIC source is a stream of **SAM Coupé bytes**, one byte per glyph across the full `0x00`–`0xFF` range. Bytes `0x80`–`0xFF` are valid SAM characters (graphics symbols, accented letters) and appear in REM bodies and string literals as legitimate visible content. An implementing lexer **reads bytes, not Unicode runes** — UTF-8 decoding the input would mangle high bytes (`utf8.RuneError` → truncated to `0xFD` on cast) and is a category error against the SAM character set.
+
 When the user presses Enter, the SAM BASIC editor passes the freshly-typed line — a buffer of raw ASCII bytes terminated by `0x0D` (CR) — to two routines in sequence:
 
 1. **`TOKMAIN`** (ROM L13028 / `TOKMAIN` @ `0x3872`) walks the line left-to-right, identifies runs of alphabetic characters and the operator chars `<`/`>`, and replaces any complete keyword by its 1-byte token (`0x85`–`0xF6`) or 2-byte token (`0xFF nn`, `nn` in `0x3B`–`0x83`). Keyword matching is **case-insensitive** (`AND 0DFH` fold) and **strictly word-bounded** (`LOADX` is not `LOAD`+`X`; it is the procedure name `LOADX`). String literals (`"…"`) and everything after `REM` are skipped untouched. (ROM L15877–L15979)
