@@ -62,3 +62,57 @@ func TestParseText_LineNumberOutOfRange(t *testing.T) {
 		t.Errorf("error msg %q does not mention 'out of range'", pe.Msg)
 	}
 }
+
+func TestFinalise_IfThenPatch(t *testing.T) {
+	f, err := ParseTextString("10 IF A=1 THEN PRINT \"x\"\n")
+	if err != nil {
+		t.Fatalf("ParseText: %v", err)
+	}
+	bytes := f.Lines[0].Bytes()
+	if len(bytes) < 5 {
+		t.Fatalf("body too short: %v", bytes)
+	}
+	if bytes[4] != 0xD8 {
+		t.Errorf("first body byte = %#x, want 0xD8 (SIF)", bytes[4])
+	}
+}
+
+func TestFinalise_IfNoThen(t *testing.T) {
+	f, err := ParseTextString("10 IF A=1: PRINT \"x\"\n")
+	if err != nil {
+		t.Fatalf("ParseText: %v", err)
+	}
+	bytes := f.Lines[0].Bytes()
+	if bytes[4] != 0xD7 {
+		t.Errorf("first body byte = %#x, want 0xD7 (LIF)", bytes[4])
+	}
+}
+
+func TestFinalise_ElsePatch(t *testing.T) {
+	f, err := ParseTextString("10 IF A=1 THEN PRINT \"x\":ELSE PRINT \"y\"\n")
+	if err != nil {
+		t.Fatalf("ParseText: %v", err)
+	}
+	bytes := f.Lines[0].Bytes()
+	var found byte
+	for i := 4; i < len(bytes); i++ {
+		if bytes[i] == 0xD9 || bytes[i] == 0xDA {
+			found = bytes[i]
+			break
+		}
+	}
+	if found != 0xDA {
+		t.Errorf("ELSE byte = %#x, want 0xDA", found)
+	}
+}
+
+func TestFinalise_InkPatch(t *testing.T) {
+	f, err := ParseTextString("10 INK 2\n")
+	if err != nil {
+		t.Fatalf("ParseText: %v", err)
+	}
+	bytes := f.Lines[0].Bytes()
+	if bytes[4] != 0xA1 {
+		t.Errorf("first body byte = %#x, want 0xA1 (PEN)", bytes[4])
+	}
+}

@@ -189,6 +189,15 @@ var keywordTable = [...]string{
 	"POW",         // 0xF4
 	"BOOM",        // 0xF5
 	"ZOOM",        // 0xF6
+	"",            // 0xF7  reserved
+	"",            // 0xF8  reserved
+	"",            // 0xF9  reserved
+	"",            // 0xFA  reserved
+	"",            // 0xFB  reserved
+	"",            // 0xFC  reserved
+	"",            // 0xFD  reserved
+	"",            // 0xFE  reserved
+	"INK",         // 0xFF  INK→PEN shim (grammar §3.3); finalise rewrites to 0xA1
 }
 
 const (
@@ -306,6 +315,11 @@ const (
 	POW        SingleByteKeyword = 0xF4
 	BOOM       SingleByteKeyword = 0xF5
 	ZOOM       SingleByteKeyword = 0xF6
+	// INK is the editor's compat shim for Spectrum users: GETTOKEN matches
+	// "INK" at table slot 0xFF, then TOKMAIN rewrites the token to PEN
+	// (0xA1) before storing. See grammar spec §3.3. The 0xFF byte never
+	// appears in stored program text — finalise() applies the rewrite.
+	INK SingleByteKeyword = 0xFF
 )
 
 const (

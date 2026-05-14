@@ -118,7 +118,63 @@ func assembleFile(edits map[uint16]Line) *File {
 	return &File{Lines: lines}
 }
 
-// finalise is a stub here — Task 16 implements the IF/ELSE/INK byte patches.
+// finalise applies SAM's two-pass byte-level patches to a tokenised line:
+//
+//	LIF (0xD7) → SIF (0xD8) iff THEN (0x8D) appears later in the line.
+//	LELSE (0xD9) → ELSE (0xDA) iff THEN appeared earlier.
+//	INK (0xFF, as a standalone 1-byte token) → PEN (0xA1) unconditionally.
+//
+// See grammar spec §1, §3.3, §3.10.
+//
+// The INK rewrite needs to distinguish a standalone 0xFF (the INK keyword,
+// at table slot 0xFF — see grammar §3.3) from a 0xFF that introduces a
+// 2-byte keyword pair. Two-byte prefixes are always followed by a byte in
+// 0x3B..0x84 (the 2-byte keyword index range), so we skip those.
 func finalise(line Line) Line {
-	return line
+	body := flattenTokens(line.Tokens)
+	hasTHEN := false
+	for _, b := range body {
+		if b == 0x8D {
+			hasTHEN = true
+			break
+		}
+	}
+	patched := make([]byte, len(body))
+	copy(patched, body)
+	inkByte := byte(INK)
+	penByte := byte(PEN)
+	for i := 0; i < len(patched); i++ {
+		b := patched[i]
+		// Skip 2-byte keyword pairs so we don't mistake the 0xFF prefix
+		// for a standalone INK token.
+		if b == 0xFF && i+1 < len(patched) {
+			next := patched[i+1]
+			if next >= 0x3B && next <= 0x84 {
+				i++ // consume the index byte
+				continue
+			}
+		}
+		switch {
+		case b == 0xD7 && hasTHEN:
+			patched[i] = 0xD8
+		case b == 0xD9 && hasTHEN:
+			patched[i] = 0xDA
+		case b == inkByte:
+			patched[i] = penByte
+		}
+	}
+	out := make([]Token, len(patched))
+	for i, b := range patched {
+		out[i] = literal(b)
+	}
+	return Line{Number: line.Number, Tokens: out}
+}
+
+// flattenTokens returns the concatenation of every token's Bytes().
+func flattenTokens(tokens []Token) []byte {
+	var out []byte
+	for _, t := range tokens {
+		out = append(out, t.Bytes()...)
+	}
+	return out
 }
