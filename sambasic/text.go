@@ -133,10 +133,16 @@ func assembleFile(edits map[uint16]Line) *File {
 func finalise(line Line) Line {
 	body := flattenTokens(line.Tokens)
 	hasTHEN := false
-	for _, b := range body {
+	for i := 0; i < len(body); i++ {
+		b := body[i]
+		if b == 0x0E {
+			// Skip 0x0E marker + 5 FP bytes; these may contain arbitrary
+			// bytes (including 0xFF) that must not be reinterpreted.
+			i += 5
+			continue
+		}
 		if b == 0x8D {
 			hasTHEN = true
-			break
 		}
 	}
 	patched := make([]byte, len(body))
@@ -145,6 +151,11 @@ func finalise(line Line) Line {
 	penByte := byte(PEN)
 	for i := 0; i < len(patched); i++ {
 		b := patched[i]
+		if b == 0x0E {
+			// Skip 0x0E marker + 5 FP bytes.
+			i += 5
+			continue
+		}
 		// Skip 2-byte keyword pairs so we don't mistake the 0xFF prefix
 		// for a standalone INK token.
 		if b == 0xFF && i+1 < len(patched) {

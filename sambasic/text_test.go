@@ -117,6 +117,34 @@ func TestFinalise_InkPatch(t *testing.T) {
 	}
 }
 
+func TestFinalise_DoesNotCorrupt_FPBytesEqualToFF(t *testing.T) {
+	// 49151 has FP form 00 00 FF BF 00. finalise() must NOT rewrite the FF.
+	f, err := ParseTextString("10 PRINT 49151\n")
+	if err != nil {
+		t.Fatalf("ParseText: %v", err)
+	}
+	body := f.Lines[0].Bytes()
+	// Body layout: header(4) PRINT(1) "49151"(5) 0E(1) 00 00 FF BF 00(5) 0D(1) = 17
+	// Find the 0E marker.
+	var markerIdx int
+	for i, b := range body {
+		if b == 0x0E {
+			markerIdx = i
+			break
+		}
+	}
+	if markerIdx == 0 {
+		t.Fatalf("no 0x0E marker in body: % X", body)
+	}
+	wantFP := []byte{0x00, 0x00, 0xFF, 0xBF, 0x00}
+	for i, w := range wantFP {
+		if body[markerIdx+1+i] != w {
+			t.Errorf("FP byte %d = %#x, want %#x (full body: % X)", i, body[markerIdx+1+i], w, body)
+			break
+		}
+	}
+}
+
 func TestParseText_BuildDiskAutoRunFixture(t *testing.T) {
 	src := `10 CLEAR 32767
 20 LOAD "stub" CODE 32768
