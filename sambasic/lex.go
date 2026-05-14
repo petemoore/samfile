@@ -334,10 +334,13 @@ func lexBodyLoop(l *lexer) stateFn {
 		// Leading-space-drop: if a keyword starts right after this space,
 		// drop the space (don't emit it). Don't touch stmtInitial here:
 		// we're still in statement-initial position.
-		if l.pos < len(l.input) && isAlpha(int(l.input[l.pos])) {
-			if _, _, _, isKW := lookupKeyword(l.input, l.pos); isKW {
-				l.ignore()
-				return lexBodyLoop
+		if l.pos < len(l.input) {
+			b := l.input[l.pos]
+			if isAlpha(int(b)) || b == '<' || b == '>' {
+				if _, _, _, isKW := lookupKeyword(l.input, l.pos); isKW {
+					l.ignore()
+					return lexBodyLoop
+				}
 			}
 		}
 		l.emit(itemLiteral)
@@ -347,6 +350,10 @@ func lexBodyLoop(l *lexer) stateFn {
 	if isAlpha(r) {
 		l.backup()
 		return lexKeyword
+	}
+	if r == '<' || r == '>' {
+		l.backup()
+		return lexRelop
 	}
 	if r == '&' {
 		l.backup()
@@ -642,6 +649,38 @@ func lexKeyword(l *lexer) stateFn {
 	if canonical == "REM" {
 		return lexComment
 	}
+	return lexBodyLoop
+}
+
+// lexRelop handles a `<` or `>` at the current input position. The SAM
+// editor tokenises `<=`, `<>`, `>=` as 2-byte operator keywords
+// (grammar §3.2 / §3.3): TOKMAIN treats these characters as keyword
+// candidates and tries to match them via GETTOKEN. A standalone `<` or
+// `>` (less-than / greater-than) is not a keyword and is stored as a
+// literal byte.
+func lexRelop(l *lexer) stateFn {
+	canonical, endPos, kwBytes, ok := lookupKeyword(l.input, l.pos)
+	if ok {
+		l.advanceColOver(l.pos, endPos)
+		l.pos = endPos
+		// One-trailing-space drop per §3.5. The check is moot for
+		// `<=` / `<>` / `>=` because lookupKeyword's word-boundary
+		// rule skips the trailing letter check for keywords ending in
+		// `=` or `>` — but a trailing 0x20 is still consumed by
+		// TOK55/TOK6 when present.
+		if l.pos < len(l.input) && l.input[l.pos] == ' ' {
+			l.pos++
+			l.col++
+		}
+		l.stmtInitial = false
+		l.emitBytes(itemKeyword, kwBytes, l.input[l.start:l.pos])
+		_ = canonical
+		return lexBodyLoop
+	}
+	// No keyword match: emit the single `<` or `>` byte as a literal.
+	l.next()
+	l.emit(itemLiteral)
+	l.stmtInitial = false
 	return lexBodyLoop
 }
 

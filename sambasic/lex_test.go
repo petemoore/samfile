@@ -728,6 +728,62 @@ func TestLexKeyword_NoMidIdentifierKeyword(t *testing.T) {
 	}
 }
 
+// TestLexRelop_OperatorKeywords covers the 2-byte operator keywords
+// <>, <=, >= which TOKMAIN matches when CHAD sits on `<` or `>`
+// (grammar §3.2 / §3.3). Standalone `<` or `>` must fall through to a
+// literal byte.
+func TestLexRelop_OperatorKeywords(t *testing.T) {
+	tests := []struct {
+		name      string
+		in        string
+		wantBytes []byte
+	}{
+		// Wrap each case in a LET expression so the relop is in
+		// expression context (otherwise the leading `a` would dispatch
+		// to a statement-initial bare-identifier PROC placeholder).
+		// `<>` → FF 81, surrounding spaces consumed (leading-space-drop
+		// in lexBodyLoop, trailing-space-drop in lexRelop).
+		{"NEQ", "10 LET x=a<>b\n", []byte{byte(LET), 'x', '=', 'a', 0xFF, 0x81, 'b'}},
+		{"NEQ-spaces-both-sides", "10 LET x=a <> b\n", []byte{byte(LET), 'x', '=', 'a', 0xFF, 0x81, 'b'}},
+		// `<=` → FF 82
+		{"LE", "10 LET x=a<=b\n", []byte{byte(LET), 'x', '=', 'a', 0xFF, 0x82, 'b'}},
+		{"LE-spaced", "10 LET x=a <= b\n", []byte{byte(LET), 'x', '=', 'a', 0xFF, 0x82, 'b'}},
+		// `>=` → FF 83
+		{"GE", "10 LET x=a>=b\n", []byte{byte(LET), 'x', '=', 'a', 0xFF, 0x83, 'b'}},
+		{"GE-spaced", "10 LET x=a >= b\n", []byte{byte(LET), 'x', '=', 'a', 0xFF, 0x83, 'b'}},
+		// Standalone `<` and `>` stay as literal bytes — no match in
+		// the keyword table from those positions.
+		{"LT-alone", "10 LET x=a<b\n", []byte{byte(LET), 'x', '=', 'a', '<', 'b'}},
+		{"GT-alone", "10 LET x=a>b\n", []byte{byte(LET), 'x', '=', 'a', '>', 'b'}},
+		// `<` immediately followed by another `<` (e.g. `a<<5`): the
+		// first `<` fails to match a keyword and is emitted literal;
+		// the second `<` then attempts a fresh match.
+		{"LT-LT", "10 LET x=a<<b\n", []byte{byte(LET), 'x', '=', 'a', '<', '<', 'b'}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collectItems(tt.in)
+			var body []byte
+			i := 0
+			for i < len(got) && got[i].typ != itemLineNumber {
+				i++
+			}
+			i++
+			for i < len(got) && got[i].typ != itemEOL {
+				if got[i].bytes != nil {
+					body = append(body, got[i].bytes...)
+				} else {
+					body = append(body, []byte(got[i].val)...)
+				}
+				i++
+			}
+			if !bytesEqual(body, tt.wantBytes) {
+				t.Errorf("body = % X, want % X", body, tt.wantBytes)
+			}
+		})
+	}
+}
+
 func TestLexProcCall_Placeholder(t *testing.T) {
 	tests := []struct {
 		name      string
