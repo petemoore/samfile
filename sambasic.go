@@ -349,6 +349,11 @@ func (s *outputState) handleByte(b byte, data []byte, offset, n uint32, remainin
 		kwByte := data[offset+1]
 		name, ok := sambasic.KeywordName(kwByte, true)
 		if !ok {
+			if s.lossy {
+				// Reserved 2-byte function slots — ROM emits `-`.
+				s.emit('-')
+				return 1, nil
+			}
 			return 0, fmt.Errorf("basic-to-text: invalid keyword byte 0x%02x after 0xff escape at offset %d", kwByte, offset+1)
 		}
 		s.emitKeywordTwoByte(kwByte, name)
@@ -376,6 +381,15 @@ func (s *outputState) handleByte(b byte, data []byte, offset, n uint32, remainin
 			return 0, fmt.Errorf("basic-to-text: keyword index %d out of range", b-0x3b)
 		}
 		s.emitKeyword(name)
+		return 0, nil
+	case s.lossy && b >= 0xf7 && b <= 0xfe:
+		// "Reserved" 1-byte command tokens 0xF7..0xFE — ROM KEYWTAB
+		// stores `DC "-"` at these slots and PRGR80 emits `-` literally.
+		// In faithful mode these bytes fall to the default below (which
+		// won't round-trip — these are non-editor-producible token
+		// sequences from corruption or third-party tools); in lossy
+		// mode we match LLIST by emitting `-`.
+		s.emit('-')
 		return 0, nil
 	default:
 		s.emit(b)
