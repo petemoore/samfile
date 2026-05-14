@@ -24,6 +24,122 @@ variation has no functional consequence.
 
 ---
 
+## Triage process
+
+This is the **single source of truth** for how the round-trip fix
+loop is run. Process notes that live only in memory or chat
+scrollback are unreliable and may be lost.
+
+### 1. Run the corpus test and print the scoreboard
+
+```bash
+go test -tags corpus -count=1 -run TestCorpusRoundTrip ./sambasic
+```
+
+The summary line reports
+`match:N diverged:N detok-error:N parse-error:N file-error:N panic:N`.
+After **every** change (including no-op refactors), emit a 4-line
+scoreboard:
+
+```
+Corpus status:
+  Total:    7028 BASIC programs
+  Passing:  <match count>
+  Failing:  <Total - match count>
+  Δ:        +/- since previous iteration
+```
+
+`Total` and `Passing` come from the summary; `Failing` is the sum
+of all non-`match` outcomes. Δ is the signed delta from the
+previously-reported figure in this session (`+0` is still worth
+printing — silence is ambiguous).
+
+### 2. Pick the first failure
+
+Take the **first** failure listed in the test output. Do not sort
+or cluster-rank by frequency. Every bug needs fixing eventually,
+and most fixes incidentally clear other failures from the same
+root cause — pre-categorisation is overhead with no net saving.
+
+### 3. Reproduce it locally
+
+Identify the disk and file from the failure line, e.g.:
+
+```
+[diverged] 18 Rated Poker for 512k (19xx) (Supplement Software).mgt/FILE3:
+    got 21851 bytes, want 21853 bytes, 6899 mismatches
+```
+
+Reproduce in-process: load the disk, get `f.Body`, run it through
+`bodyToText` then `sambasic.ParseTextSchema`, compare via
+`sambasic.Conform`. The boilerplate is small — keep a scratch
+`/tmp/probe-*.go` around. The goal is to extract:
+
+- The first divergence offset and the bytes around it (got and
+  want, in hex).
+- The decoded interpretation (line number, line body, what each
+  byte means — keyword tokens vs literals vs FP-form, etc.).
+- The source-text line that produced the divergence.
+
+### 4. Classify into one of the four buckets
+
+Form a hypothesis: which bucket does this divergence belong to?
+
+| Bucket | Indicator |
+|--------|-----------|
+| 1. Lexer bug | Source text is correct SAM BASIC; the lexer's output disagrees with what TOKMAIN would produce. Fix `sambasic/lex.go`. |
+| 2. Detokeniser bug | The text `basic-to-text` produced doesn't match what SAM ROM's `LIST` would have shown. Fix `sambasic.SAMBasic.Output()`. |
+| 3. Acceptable variation | Two encodings have identical runtime effect (e.g. ROM rebuilds the value at LOAD). Add a schema rule and an entry below. |
+| 4. Corrupt / non-stock corpus body | The disk's bytes aren't reachable from the stock editor (e.g. produced by an external tool, hand-poked, sector errors). Exclude the file. |
+
+### 5. Before designing around bucket 3 or 4: verify in SimCoupé
+
+If the hypothesis is "acceptable variation" or "corrupt body",
+**do not** add escape mechanisms to basic-to-text or schema
+caveats here without first confirming the disk's bytes are
+reachable from the stock editor.
+
+Procedure:
+
+1. Note the disk path, the affected line number, and the
+   divergent byte sequence (hex + decoded meaning).
+2. In SimCoupé: insert the disk, `LOAD "FILE"`, `LIST <line>`,
+   place the cursor on the line, and press **Enter** to re-submit
+   it through TOKMAIN.
+3. Save the disk back out, re-extract the file, inspect the byte
+   at the affected position.
+4. Apply the rule:
+   - **If SimCoupé rewrites the bytes** to match what the
+     lexer/grammar say (e.g. tokenises the identifier as a
+     keyword), the disk's original bytes are **not reachable**
+     from the editor → **bucket 4** → exclude the file from the
+     corpus test (skip-list in `corpus_test.go` with a comment
+     citing this SimCoupé result).
+   - **If SimCoupé preserves the bytes**, the editor accepts the
+     form → **bucket 3** → design a schema rule that matches the
+     editor's actual mechanism, and add a section below.
+
+This step is non-optional. Adding caveats or escape encodings for
+content the stock editor wouldn't produce pollutes basic-to-text
+and the schema with cases that have no real-world equivalent.
+
+### 6. Apply the fix
+
+- **Bucket 1 / 2**: write a focused failing unit test first if
+  practical; fix in code; verify the unit test passes; then
+  re-run the corpus.
+- **Bucket 3**: add the schema rule in `sambasic/schema.go`, add
+  the caveat entry under "Currently allowed variations" below
+  with the SimCoupé citation, and verify the corpus result.
+- **Bucket 4**: extend the skip-list in `corpus_test.go` with a
+  one-line comment referencing the SimCoupé test.
+
+### 7. Re-run the corpus and print the scoreboard
+
+Go back to step 1. Repeat until everything passes or is documented.
+
+---
+
 ## Currently allowed variations
 
 ### PROC-call placeholder trailing bytes (`SegProcCallPlaceholder`)
