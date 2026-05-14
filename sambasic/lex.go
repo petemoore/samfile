@@ -35,22 +35,26 @@ type item struct {
 type stateFn func(*lexer) stateFn
 
 type lexer struct {
-	input string
-	pos   int
-	start int
-	width int
-	line  int
-	col   int
-	state stateFn
-	items chan item
+	input     string
+	pos       int
+	start     int
+	width     int
+	line      int
+	col       int
+	startLine int
+	startCol  int
+	state     stateFn
+	items     chan item
 }
 
 func lex(input string) *lexer {
 	l := &lexer{
-		input: input,
-		line:  1,
-		col:   1,
-		items: make(chan item, 2),
+		input:     input,
+		line:      1,
+		col:       1,
+		startLine: 1,
+		startCol:  1,
+		items:     make(chan item, 2),
 	}
 	return l
 }
@@ -109,27 +113,37 @@ func (l *lexer) acceptRun(valid string) {
 
 func (l *lexer) ignore() {
 	l.start = l.pos
+	l.startLine = l.line
+	l.startCol = l.col
 }
 
 func (l *lexer) emit(t itemType) {
 	l.items <- item{
 		typ:  t,
 		val:  l.input[l.start:l.pos],
-		line: l.line,
-		col:  l.col,
+		line: l.startLine,
+		col:  l.startCol,
 	}
 	l.start = l.pos
+	l.startLine = l.line
+	l.startCol = l.col
 }
 
+// emitBytes pushes an item with pre-resolved disk bytes (e.g. a keyword's
+// tokenised form). The caller is responsible for ensuring l.pos has been
+// advanced past the consumed source span before calling, so that start is
+// correctly reset for the next token.
 func (l *lexer) emitBytes(t itemType, b []byte, val string) {
 	l.items <- item{
 		typ:   t,
 		val:   val,
 		bytes: b,
-		line:  l.line,
-		col:   l.col,
+		line:  l.startLine,
+		col:   l.startCol,
 	}
 	l.start = l.pos
+	l.startLine = l.line
+	l.startCol = l.col
 }
 
 func (l *lexer) errorf(format string, args ...any) stateFn {

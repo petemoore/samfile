@@ -74,6 +74,44 @@ func TestLexerPrimitives_EmitAndDrain(t *testing.T) {
 	}
 }
 
+func TestLexerPrimitives_EmitStampsStartPosition(t *testing.T) {
+	l := lex("abc\nXY")
+	// Consume "abc"
+	l.next()
+	l.next()
+	l.next()
+	// At this point line=1, col=4. The token starts at line=1, col=1.
+	go func() {
+		l.emit(itemLiteral)
+		close(l.items)
+	}()
+	it := <-l.items
+	if it.line != 1 || it.col != 1 {
+		t.Errorf("emit stamped line=%d col=%d, want 1,1 (start of token)", it.line, it.col)
+	}
+	if it.val != "abc" {
+		t.Errorf("val = %q, want 'abc'", it.val)
+	}
+}
+
+func TestLexerPrimitives_ErrorfStampsCurrentPosition(t *testing.T) {
+	// errorf should stamp the CURRENT position (where the bad char is),
+	// not the start-of-token position.
+	l := lex("abXY")
+	l.next()
+	l.next()
+	l.next()
+	// line=1, col=4 (just past 'X')
+	go func() {
+		l.errorf("test")
+		close(l.items)
+	}()
+	it := <-l.items
+	if it.line != 1 || it.col != 4 {
+		t.Errorf("errorf stamped line=%d col=%d, want 1,4 (current position)", it.line, it.col)
+	}
+}
+
 func TestLexerPrimitives_Errorf(t *testing.T) {
 	l := lex("xyz")
 	l.line = 5
