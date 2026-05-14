@@ -469,10 +469,14 @@ func (s *outputState) handleControl(b byte, data []byte, offset uint32, remainin
 	}
 	switch b {
 	case 0x06:
-		// PRCOMMA — pad to next 16-column tab stop. Empirical
-		// approximation: SAM's WIDTH default is 32 (screen) / 80
-		// (printer); commas tab to the next column that's a multiple
-		// of 16. Implement as "emit spaces until col % 16 == 0".
+		// PRCOMMA — pad to the next 16-column tab stop, even when
+		// already on one (so two consecutive PRCOMMA bytes pad 32
+		// columns, matching SAM ROM's tab behaviour). Verified
+		// against the LLIST capture of `Allan Stevens Compilation -
+		// Games Disk 1.mgt:SNOOKER` line 10 REM which has `06 06`
+		// after the REM trailing space (col=10): LLIST emits 22
+		// spaces, advancing col 10 → 16 → 32.
+		s.emit(0x20)
 		for s.col%16 != 0 {
 			s.emit(0x20)
 		}
