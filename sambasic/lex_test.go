@@ -650,6 +650,66 @@ func TestLexComment_REM(t *testing.T) {
 	}
 }
 
+// TestLexComment_BytePreservingNonASCII guards against UTF-8 mangling in
+// REM bodies: a byte > 0x7F that is not a valid UTF-8 prefix would,
+// under the old `byte(l.next())` path, decode to utf8.RuneError (0xFFFD)
+// and truncate to 0xFD. The detokeniser emits raw bytes from disk verbatim
+// — e.g. the SAM glyph at 0x82 in `REM Door<0x82> 1992/3` — so the REM
+// body lexer must walk bytes, not runes. Corpus example: "Banzai - The
+// Demos & Utils by Dan Doore (1994).mgt"/DigiShow line 20 offset 83.
+func TestLexComment_BytePreservingNonASCII(t *testing.T) {
+	in := "10 REM Door\x82 1992/3\n"
+	wantTail := []byte{'D', 'o', 'o', 'r', 0x82, ' ', '1', '9', '9', '2', '/', '3'}
+
+	got := collectItems(in)
+	var tail []byte
+	afterREM := false
+	for _, it := range got {
+		if it.typ == itemKeyword && len(it.bytes) == 1 && it.bytes[0] == byte(REM) {
+			afterREM = true
+			continue
+		}
+		if !afterREM {
+			continue
+		}
+		if it.typ == itemEOL {
+			break
+		}
+		if it.bytes != nil {
+			tail = append(tail, it.bytes...)
+		} else {
+			tail = append(tail, []byte(it.val)...)
+		}
+	}
+	if !bytesEqual(tail, wantTail) {
+		t.Errorf("REM tail = % X, want % X", tail, wantTail)
+	}
+}
+
+// TestLexString_BytePreservingNonASCII guards the same byte-preservation
+// invariant inside string literals: e.g. `"X\x80Y"` must round-trip as
+// `"`, 'X', 0x80, 'Y', `"` — not `"`, 'X', 0xFD, 'Y', `"`. Corpus
+// examples in the `String | other | got=0xFD want=0x80..0x84` buckets.
+func TestLexString_BytePreservingNonASCII(t *testing.T) {
+	in := "10 \"X\x80Y\x82Z\"\n"
+	want := []byte{'"', 'X', 0x80, 'Y', 0x82, 'Z', '"'}
+
+	got := collectItems(in)
+	var s []byte
+	for _, it := range got {
+		if it.typ == itemString {
+			if it.bytes != nil {
+				s = append(s, it.bytes...)
+			} else {
+				s = append(s, []byte(it.val)...)
+			}
+		}
+	}
+	if !bytesEqual(s, want) {
+		t.Errorf("string bytes = % X, want % X", s, want)
+	}
+}
+
 func TestLexKeyword_NoMidIdentifierKeyword(t *testing.T) {
 	// In expression context, 'crem' must not be tokenised as 'c'+'REM'.
 	// All five letters of "crem" should emit as plain literal bytes.

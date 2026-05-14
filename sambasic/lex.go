@@ -79,6 +79,33 @@ func (l *lexer) next() rune {
 	return r
 }
 
+// nextByte advances one input byte and returns it (no UTF-8 decoding).
+// Returns (0, false) at end of input. Used by byte-preserving contexts
+// such as REM bodies and string bodies, where each input byte must
+// survive verbatim into the output (UTF-8 decode would mangle any byte
+// > 0x7F that is not a valid UTF-8 prefix into utf8.RuneError, which
+// truncates to 0xFD when cast to byte).
+//
+// Line/column counters are updated assuming the byte is not part of a
+// multi-byte UTF-8 sequence; this is correct for the binary-clean text
+// streams emitted by basic-to-text (one input byte ↔ one output byte).
+func (l *lexer) nextByte() (byte, bool) {
+	if l.pos >= len(l.input) {
+		l.width = 0
+		return 0, false
+	}
+	b := l.input[l.pos]
+	l.width = 1
+	l.pos++
+	if b == '\n' {
+		l.line++
+		l.col = 1
+	} else {
+		l.col++
+	}
+	return b, true
+}
+
 func (l *lexer) backup() {
 	if l.width == 0 {
 		return
@@ -686,22 +713,34 @@ func lexString(l *lexer) stateFn {
 	}
 	// Resolve {N} escapes inline. We build a fresh byte slice rather than
 	// rely on l.input[l.start:l.pos] because the resolved bytes may
-	// differ from the source bytes.
+	// differ from the source bytes. String bodies are byte-clean — see
+	// the rationale on nextByte for why we walk bytes here rather than
+	// runes.
 	out := []byte{'"'}
 	for {
-		r := l.next()
-		if r == eof || r == '\n' || r == '\r' {
-			if r != eof {
-				l.backup()
-			}
+		b, ok := l.nextByte()
+		if !ok {
 			l.emitBytes(itemString, out, l.input[l.start:l.pos])
 			return lexBodyLoop
 		}
-		if r == '"' {
+		if b == '\n' || b == '\r' {
+			// Back up: the line terminator belongs to lexBodyLoop.
+			l.pos--
+			if b == '\n' {
+				l.line--
+			}
+			l.col--
+			l.width = 0
+			l.emitBytes(itemString, out, l.input[l.start:l.pos])
+			return lexBodyLoop
+		}
+		if b == '"' {
 			// Look ahead: another " means doubled-quote escape; consume
 			// both and stay in string mode.
-			if l.peek() == '"' {
-				l.next()
+			if l.pos < len(l.input) && l.input[l.pos] == '"' {
+				l.pos++
+				l.col++
+				l.width = 1
 				out = append(out, '"', '"')
 				continue
 			}
@@ -710,47 +749,52 @@ func lexString(l *lexer) stateFn {
 			l.emitBytes(itemString, out, l.input[l.start:l.pos])
 			return lexBodyLoop
 		}
-		if r == '{' {
+		if b == '{' {
 			// Try to parse {NNN}; if it fails, treat as literal {.
 			savedPos := l.pos
 			digitStart := l.pos
-			ok := false
+			matched := false
 			for {
-				r2 := l.next()
-				if r2 == '}' {
+				b2, ok2 := l.nextByte()
+				if !ok2 {
+					break
+				}
+				if b2 == '}' {
 					digits := l.input[digitStart : l.pos-1]
 					if digits != "" {
 						v, err := strconv.ParseUint(digits, 10, 16)
 						if err == nil && v <= 255 {
 							out = append(out, byte(v))
-							ok = true
+							matched = true
 						}
 					}
 					break
 				}
-				if r2 == eof || r2 == '\n' || r2 == '\r' || r2 < '0' || r2 > '9' {
+				if b2 == '\n' || b2 == '\r' || b2 < '0' || b2 > '9' {
 					break
 				}
 			}
-			if !ok {
+			if !matched {
 				// Rewind to right after `{`, emit `{` as a literal byte.
 				l.pos = savedPos
 				out = append(out, '{')
 			}
 			continue
 		}
-		out = append(out, byte(r))
+		out = append(out, b)
 	}
 }
 
 // lexComment consumes the rest of the current line as a single raw
 // itemLiteral (no keyword/number/string tokenisation inside), then
-// hands back to a small finaliser state.
+// hands back to a small finaliser state. The REM body is byte-clean —
+// see the rationale on nextByte for why we walk bytes here rather than
+// runes.
 func lexComment(l *lexer) stateFn {
 	out := []byte{}
 	for {
-		r := l.next()
-		if r == eof {
+		b, ok := l.nextByte()
+		if !ok {
 			// Emit literal here (if any), then return a finaliser that
 			// emits the closing EOL and EOF on subsequent invocations.
 			if len(out) > 0 {
@@ -761,8 +805,14 @@ func lexComment(l *lexer) stateFn {
 			l.emit(itemEOF)
 			return nil
 		}
-		if r == '\n' || r == '\r' {
-			l.backup()
+		if b == '\n' || b == '\r' {
+			// Back up: the line terminator belongs to the outer driver.
+			l.pos--
+			if b == '\n' {
+				l.line--
+			}
+			l.col--
+			l.width = 0
 			if len(out) > 0 {
 				l.emitBytes(itemLiteral, out, l.input[l.start:l.pos])
 				return lexCommentEndNewline
@@ -770,40 +820,43 @@ func lexComment(l *lexer) stateFn {
 			l.start = l.pos
 			l.startLine = l.line
 			l.startCol = l.col
-			l.next()
+			_, _ = l.nextByte()
 			l.ignore()
 			l.emit(itemEOL)
 			return lexStart
 		}
-		if r == '{' {
+		if b == '{' {
 			// Try to parse {NNN}; if it fails, treat as literal {.
 			savedPos := l.pos
 			digitStart := l.pos
-			ok := false
+			matched := false
 			for {
-				r2 := l.next()
-				if r2 == '}' {
+				b2, ok2 := l.nextByte()
+				if !ok2 {
+					break
+				}
+				if b2 == '}' {
 					digits := l.input[digitStart : l.pos-1]
 					if digits != "" {
 						v, err := strconv.ParseUint(digits, 10, 16)
 						if err == nil && v <= 255 {
 							out = append(out, byte(v))
-							ok = true
+							matched = true
 						}
 					}
 					break
 				}
-				if r2 == eof || r2 == '\n' || r2 == '\r' || r2 < '0' || r2 > '9' {
+				if b2 == '\n' || b2 == '\r' || b2 < '0' || b2 > '9' {
 					break
 				}
 			}
-			if !ok {
+			if !matched {
 				l.pos = savedPos
 				out = append(out, '{')
 			}
 			continue
 		}
-		out = append(out, byte(r))
+		out = append(out, b)
 	}
 }
 
