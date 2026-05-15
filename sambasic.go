@@ -559,6 +559,15 @@ func (s *outputState) handleControl(b byte, data []byte, offset uint32, remainin
 			}
 		}
 		return 0, nil
+	case 0x08:
+		// CURLF (0xDE1F) — cursor-left. On the printer path the ROM
+		// adjusts the column counter (PRPOSN) but emits no byte to
+		// the output stream. Surfaced by Morkography/Procs lines
+		// padded with 0x08 bytes: samfile previously emitted '?' for
+		// each, LLIST emitted nothing.
+		// (We don't track PRPOSN separately yet; for ASCII-only REM
+		// padding this approximation matches LLIST byte-for-byte.)
+		return 0, nil
 	case 0x0a:
 		// CURDN (0xDE98) calls PRENTER (0xDEA2). On the printer path
 		// (CY set under LPRINT/LLIST), PRENTER jumps to LPRENT (0xDEC3)
