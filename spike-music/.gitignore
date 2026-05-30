@@ -1,0 +1,4 @@
+# compiled command binaries (built via `go build ./...`)
+/decrunch
+/probe
+/render
