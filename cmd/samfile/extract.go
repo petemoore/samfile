@@ -26,6 +26,7 @@ func extract(arguments map[string]any) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	convert, _ := arguments["-c"].(bool)
 	dir := diskImage.DiskJournal()
 	fileFound := false
 	for _, diskfile := range dir {
@@ -39,9 +40,19 @@ func extract(arguments map[string]any) {
 			log.Printf("warning: could not extract %q: %v", filename, err)
 			continue
 		}
-		localFile := filepath.Join(target, strings.ReplaceAll(filename, string([]rune{os.PathSeparator}), "#"))
+		body := f.Body
+		base := strings.ReplaceAll(filename, string([]rune{os.PathSeparator}), "#")
+		if convert {
+			if out, ok, err := convertBody(body, diskfile); err != nil {
+				log.Printf("warning: could not convert %q, extracting raw: %v", filename, err)
+			} else if ok {
+				body = out
+				base, _ = convertedName(base, diskfile)
+			}
+		}
+		localFile := filepath.Join(target, base)
 		log.Printf("saving file %q from disk image %q to file %q", filename, imageName, localFile)
-		err = os.WriteFile(localFile, f.Body, 0666)
+		err = os.WriteFile(localFile, body, 0666)
 		if err != nil {
 			log.Fatalf("failed to write file %q: %v", localFile, err)
 		}

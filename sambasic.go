@@ -109,6 +109,14 @@ func NewSAMBasic(data []byte) *SAMBasic {
 // Returns an error if the input is empty, truncated, or contains an
 // out-of-range keyword index.
 func (basic *SAMBasic) Output() error {
+	return basic.WriteText(os.Stdout)
+}
+
+// WriteText detokenises basic.Data to w, applying the same FAITHFUL /
+// LOSSY rules documented on Output. Output is WriteText(os.Stdout);
+// callers that need to capture or redirect the listing (e.g. the
+// extract/cat -c conversion path) use WriteText directly.
+func (basic *SAMBasic) WriteText(w io.Writer) error {
 	if len(basic.Data) == 0 {
 		return fmt.Errorf("basic-to-text: empty input; expected SAM BASIC bytes on stdin")
 	}
@@ -128,7 +136,7 @@ func (basic *SAMBasic) Output() error {
 	const skipLineBelow = uint16(1)
 	const skipLineAbove = uint16(65278)
 	s := &outputState{
-		out:   os.Stdout,
+		out:   w,
 		rhs:   79,
 		eppc:  eppc,
 		lossy: basic.Lossy,

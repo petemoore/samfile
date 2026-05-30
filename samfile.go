@@ -824,6 +824,33 @@ func (di *DiskImage) AddCodeFile(name string, data []byte, loadAddress, executio
 	)
 }
 
+// AddScreenFile adds a SAM SCREEN$ file (FT_SCREEN, type 20) to the
+// disk. data is the raw SCREEN$ body exactly as BASIC's
+// SAVE "name" SCREEN$ writes it: the display-memory dump followed by
+// the saved palette/colour block (e.g. for MODE 4: 24576 data bytes +
+// 16-entry CLUT + 4 mode bytes, twice, + 0xFF terminator = 24617).
+//
+// mode is the SAM MODE byte stored at FileTypeInfo[0] (0..3 for modes
+// 1..4), matching the directory format SAMDOS records and that
+// LOAD "name" SCREEN$ relies upon to restore the screen mode.
+//
+// The recorded load address is the canonical SAM screen origin (page
+// 30, offset 0x8000 — the value BASIC SAVE SCREEN$ uses for a MODE
+// 3/4 screen). SCREEN$ data legitimately wraps past the top of RAM,
+// so the CODE-file bounds checks in AddCodeFile are intentionally not
+// applied here.
+func (di *DiskImage) AddScreenFile(name string, data []byte, mode uint8) error {
+	fe := &FileEntry{
+		Type:                   FT_SCREEN,
+		StartAddressPage:       30,
+		StartAddressPageOffset: 0x8000,
+		ExecutionAddressDiv16K: 0xff,
+		ExecutionAddressMod16K: 0xffff,
+	}
+	fe.FileTypeInfo[0] = mode
+	return di.addFile(name, fe, data)
+}
+
 func NewDiskImage() *DiskImage {
 	return &DiskImage{}
 }
@@ -1029,7 +1056,18 @@ func (di *DiskImage) addFile(name string, fe *FileEntry, data []byte) error {
 // directory slot index. Call this after mutating an entry to commit
 // the change to the disk image. No bounds checking on index.
 func (di *DiskImage) WriteFileEntry(dj *DiskJournal, index int) {
-	offset := index << 8
+	// The directory occupies tracks 0–3 (cylinders 0–3, side 0), with
+	// 10 sectors per track and two 256-byte entries per sector. This
+	// must mirror DiskJournal's read mapping exactly: those tracks are
+	// NOT contiguous in the cylinder-interleaved MGT image (their flat
+	// offsets are 0, 10240, 20480, 30720 — see Sector.Offset), so a
+	// flat index<<8 offset is only correct for the first track
+	// (entries 0–19) and silently writes entries 20+ into the data
+	// area. Compute the entry's true location via Sector.Offset.
+	track := uint8(index / 20)
+	within := index % 20
+	sector := uint8(within/2) + 1
+	offset := (&Sector{Track: track, Sector: sector}).Offset() + (within%2)*256
 	rawFileEntry := dj[index].Raw()
 	for i, b := range rawFileEntry {
 		di[i+offset] = b

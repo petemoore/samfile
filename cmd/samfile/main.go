@@ -43,6 +43,8 @@ func main() {
 		basicToText(arguments)
 	case arguments["text-to-basic"]:
 		textToBasic(arguments)
+	case arguments["screen-to-png"]:
+		screenToPNG(arguments)
 	case arguments["add"]:
 		add(arguments)
 	default:

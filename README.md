@@ -19,22 +19,29 @@ Manipulate files in SAM Coupé floppy disk images.
 
   Usage:
     samfile add -i IMAGE -f FILE -c -l LOAD_ADDRESS [-e EXECUTION_ADDRESS]
+    samfile add -i IMAGE -f FILE -s MODE
     samfile basic-to-text
-    samfile cat -i IMAGE -f FILE
-    samfile extract -i IMAGE [-t TARGET]
+    samfile screen-to-png [--mode MODE] [--format FORMAT]
+    samfile cat -i IMAGE -f FILE [-c]
+    samfile extract -i IMAGE [-t TARGET] [-c]
     samfile ls -i IMAGE
     samfile --help
     samfile --version
 
   Targets:
     add                   Adds a file from the host file system to the SAM Disk
-                          image file.
+                          image file. With -s MODE the file is added as a
+                          SCREEN$ (display dump) with the given SAM MODE (1..4).
     basic-to-text         Read a SAM Basic encoded file from stdin and output
                           plain text listing to stdout.
+    screen-to-png         Read a raw SAM SCREEN$ body from stdin and write a PNG
+                          (or GIF, with --format gif) to stdout. MODE 4 only.
     cat                   Output a single file from a SAM Disk image file to
-                          stdout.
+                          stdout. With -c, BASIC files are detokenised to text
+                          and SCREEN$ files are rendered to PNG.
     extract               Extracts all files from a SAM Disk image file to a
-                          local directory.
+                          local directory. With -c, BASIC files become
+                          '<name>.txt' and SCREEN$ files '<name>.png'.
     ls                    Lists files on SAM Disk image file.
 
   Options:
