@@ -131,19 +131,24 @@ func main() {
 
 	call(initEntry)
 
-	// Capture exactly one loop. The engine's master order-list pointer (the
-	// self-modified operand at 0x8462) advances monotonically through the order
-	// list; when it hits the 0xFF end-marker it is reloaded from the loop point
-	// (0x84A5) and jumps *backwards*. That backward jump is the loop boundary.
-	// E-Tracker songs place the 0xFE "set loop point" marker at the very start,
-	// so the loop is the whole song from frame 0 (no separate intro). We capture
-	// the SAA register shadow each frame up to the wrap; [0, wrap) is one
-	// seamless loop (the wrap frame would re-play frame 0's content).
+	// Capture the intro + loop structure. The engine's master order-list pointer
+	// (the self-modified operand at 0x8462) advances monotonically through the
+	// order list; on the 0xFF end-marker it is reloaded from the loop point
+	// (0x84A5, set by an 0xFE marker) and jumps *backwards*. We time the first
+	// two backward jumps (wraps):
+	//
+	//	wrap1            = end of the first pass (intro + one loop body)
+	//	loopFrames       = wrap2 - wrap1   (one loop-only pass)
+	//	introFrames      = wrap1 - loopFrames (patterns before the loop point;
+	//	                   0 when the 0xFE marker is at the start, as in 9/10 tunes)
+	//
+	// shadows[0:wrap1] is the whole first pass; shadows[introFrames:wrap1] is the
+	// loop body. Output = intro once + loop body `*loops` times.
 	type frame [shadowLen]byte
 	var shadows []frame
+	var wraps []int
 	prevOrder := s.Get16(orderPtrAddr)
-	wrapped := false
-	for f := 0; f < *maxFrames; f++ {
+	for f := 0; f < *maxFrames && len(wraps) < 2; f++ {
 		call(playEntry)
 		var sh frame
 		for i := 0; i < shadowLen; i++ {
@@ -151,20 +156,25 @@ func main() {
 		}
 		order := s.Get16(orderPtrAddr)
 		if f > 0 && order < prevOrder {
-			wrapped = true // order pointer jumped back: end of one loop
-			break
+			wraps = append(wraps, f)
 		}
 		prevOrder = order
 		shadows = append(shadows, sh)
 	}
-	loopFrames := len(shadows)
+
+	introFrames, loopFrames := 0, len(shadows)
+	if len(wraps) >= 2 {
+		wrap1, wrap2 := wraps[0], wraps[1]
+		loopFrames = wrap2 - wrap1
+		introFrames = wrap1 - loopFrames
+		shadows = shadows[:wrap1] // intro + one loop body
+	} else if *verbose {
+		fmt.Printf("WARNING: <2 order-pointer wraps in %d frames; treating all as loop\n", *maxFrames)
+	}
 	if *verbose {
-		if wrapped {
-			fmt.Printf("loop = %d frames (%.2fs), no intro (order-pointer wrap)\n",
-				loopFrames, float64(loopFrames)/frameHz)
-		} else {
-			fmt.Printf("no order-pointer wrap within %d frames; using all captured\n", *maxFrames)
-		}
+		fmt.Printf("intro=%d frames (%.2fs)  loop=%d frames (%.2fs)  x%d\n",
+			introFrames, float64(introFrames)/frameHz,
+			loopFrames, float64(loopFrames)/frameHz, *loops)
 	}
 
 	if *regDump != "" {
@@ -179,15 +189,14 @@ func main() {
 		must(os.WriteFile(*regDump, b, 0o644))
 	}
 
-	// Render the loop body `*loops` times. Feeding the chip is continuous across
-	// repeats (we do not reset it), so the seam is seamless: the SAA state at the
-	// end of one loop is exactly what it was entering frame 0.
+	// Render the intro once, then the loop body `*loops` times. The chip is fed
+	// continuously (never reset), so repeats are phase-seamless.
 	chip := saa.New(0, 0)             // SAM defaults: 8 MHz clock, 44100 Hz
 	chip.WriteAddressData(0x1C, 0x01) // sound enable
-	pcm := make([]int16, 0, loopFrames*(*loops)*samplesPerFrame*2)
+	var pcm []int16
 	buf := make([]int16, samplesPerFrame*2)
-	for rep := 0; rep < *loops; rep++ {
-		for f := 0; f < loopFrames; f++ {
+	emit := func(lo, hi int) {
+		for f := lo; f < hi; f++ {
 			sh := shadows[f]
 			for r := 0; r < shadowLen; r++ {
 				chip.WriteAddressData(byte(r), sh[r])
@@ -196,10 +205,14 @@ func main() {
 			pcm = append(pcm, buf...)
 		}
 	}
+	emit(0, introFrames) // intro, once
+	for rep := 0; rep < *loops; rep++ {
+		emit(introFrames, introFrames+loopFrames) // loop body
+	}
 
 	must(wav.WriteStereo16(*outPath, pcm, sampleRate))
-	fmt.Printf("%s: loop=%d frames x%d -> %s (%.2fs)\n",
-		*modPath, loopFrames, *loops, *outPath, float64(len(pcm)/2)/float64(sampleRate))
+	fmt.Printf("%s: intro=%d + loop=%d frames x%d -> %s (%.2fs)\n",
+		*modPath, introFrames, loopFrames, *loops, *outPath, float64(len(pcm)/2)/float64(sampleRate))
 }
 
 func must(err error) {

@@ -124,22 +124,38 @@ self-modified operand at `0x8462`) and interprets each byte:
 | `0xFE` | **set loop point** — saves the current order position to `0x84A5` |
 | `0xFF` | **end** — reloads the order pointer from `0x84A5` and continues |
 
-The default loop point is `0x0000` (would crash), so every song places an `0xFE`
-at the very **start** of its order list. That marker plays nothing, so **every
-tune loops from the start — there is no audible intro.** (An early attempt to
-detect the loop by autocorrelating the read-address stream produced bogus
-"intros" — on the first pass the channel phase/instrument state hasn't settled,
-so the per-frame *read set* differs from later passes even though the musical
-position is identical. The order pointer is the correct, exact signal.)
+The `0xFE` marker can sit anywhere in the order list. When it's at the very
+**start** (9 of Pete's 10 tunes), the song loops from the beginning with no
+intro. When it sits **later** — as in *Satch* (m03), whose loop point stays at
+its `0x0000` default until an `0xFE` is hit mid-song — the patterns before it are
+a one-shot **intro** and only the section from `0xFE` to `0xFF` repeats.
 
-`cmd/render` therefore detects the loop by watching `0x8462` jump *backwards*
-(the `0xFF` wrap) and renders `[0, wrap)` — one exact, seamless loop. Validated:
-the order-pointer loop length matches the song structure, and on m03 it even
-found the *true* full loop (3960 frames) where read-autocorrelation had locked
-onto an internal repeat (3672). The 4 baked repeats are one continuous SAA
-render (no chip reset between them), so internal seams are sample-continuous;
-measured seam jump is *smaller* than the largest normal square-wave edge within
-a loop, i.e. no click.
+`cmd/render` handles the general case without parsing the order list at all: it
+times the **first two** backward jumps of the order pointer (the `0xFF` wraps).
+
+```
+wrap1            = end of the first pass (intro + one loop body)
+loopFrames       = wrap2 - wrap1          (one loop-only pass)
+introFrames      = wrap1 - loopFrames     (0 ⟺ loops from the start)
+output           = intro once  +  loop body × N
+```
+
+Because the loop is *measured empirically* from the engine's own behaviour
+(rather than assumed to start at frame 0), it is correct for any intro/loop
+split — *Satch* comes out as a 5.76 s intro + 73.44 s loop, the other nine as
+intro 0. The repeats are one continuous SAA render (no chip reset between them),
+so seams are sample-continuous — measured seam jump is *smaller* than the largest
+normal square-wave edge within a loop, i.e. no click. (An earlier attempt to find
+the loop by autocorrelating the read-address stream produced bogus "intros"
+because first-pass channel phase hasn't settled; the order pointer has no such
+problem.)
+
+**Generality.** This engine's order list is linear — pattern/tempo bytes, one
+loop point (`0xFE`), one end (`0xFF`) — with no mid-list "goto/repeat-N" command,
+so "intro + single loop" is its full expressive range and the two-wrap timing
+captures it exactly for *any* E-Tracker module, not just these ten. A different
+player (e.g. Sound Machine) would need its own entry-point/loop RE, but the same
+"watch the sequence pointer wrap" technique applies.
 
 ### 7. Output format
 

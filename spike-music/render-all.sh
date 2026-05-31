@@ -58,10 +58,12 @@ for entry in "${tunes[@]}"; do
   track=$((track+1))
   tmp="$(mktemp -t "$m").wav"
 
-  # render prints: "<path>: loop=N frames x<loops> -> ..."  -> loop samples = N*882
+  # render prints: "<path>: intro=I + loop=N frames x<loops> -> ..."
   info=$(./render -loops "$LOOPS" -mod "$ASSETS/$m" -out "$tmp")
+  intro=$(sed -E 's/.*intro=([0-9]+) .*/\1/' <<<"$info")
   frames=$(sed -E 's/.*loop=([0-9]+) frames.*/\1/' <<<"$info")
-  loop_samples=$(( frames * 44100 / 50 ))
+  intro_samples=$(( intro  * 44100 / 50 ))   # loop region starts after the intro
+  loop_samples=$((  frames * 44100 / 50 ))
 
   ffmpeg -y -loglevel error -i "$tmp" "${enc[@]}" \
     -metadata title="$title" \
@@ -72,7 +74,7 @@ for entry in "${tunes[@]}"; do
     -metadata date="$year" \
     -metadata genre="Chiptune" \
     -metadata comment="FRED issue $issue, original file '$orig'. Decoded from E-Tracker SAA1099 module; ${LOOPS}x loop, loop=$loop_samples samples." \
-    -metadata LOOP_START="0" \
+    -metadata LOOP_START="$intro_samples" \
     -metadata LOOP_LENGTH="$loop_samples" \
     "$OUT/$title.$ext"
   rm -f "$tmp"

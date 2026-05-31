@@ -1,43 +1,35 @@
-// Command looptrace finds the EXACT musical loop of an E-Tracker module by
-// watching which song-data addresses the replay engine reads each frame.
+// Command looptrace reports an E-Tracker module's intro/loop structure by
+// watching the engine's master order-list pointer (the self-modified operand at
+// 0x8462). The pointer advances monotonically through the order list and, on the
+// 0xFF end-marker, is reloaded from the loop point (0x84A5, set by an 0xFE
+// marker) — jumping backwards. We time the first two backward jumps (wraps):
 //
-// Idea (Pete's): the engine reads sequentially through the song-data region
-// (>= 0x84B3, the order/pattern/instrument streams that follow the shared
-// engine code) and, at the end of the song, jumps its read pointers back to the
-// start. So the per-frame *set of song-data addresses read* is a fingerprint of
-// the song position, and that fingerprint sequence is exactly periodic with the
-// musical loop — cleanly, because it ignores the engine's free-running frame
-// counter (which lives below 0x84B3 and never lets full machine state repeat).
+//	loopLen  = wrap2 - wrap1   (one loop-only pass)
+//	introLen = wrap1 - loopLen (whatever precedes the loop point; 0 if the song
+//	                            loops from the start)
 //
-// We hash, per frame, the distinct addresses read in [0x84B3, 0xC000), then
-// find the smallest period P that the fingerprint sequence repeats over a long
-// tail window, and the earliest frame from which P holds to the end. That gives
-// (intro length, loop length) precisely.
+// This is the authoritative loop signal — exact and aligned to emission. (An
+// earlier read-address-fingerprint approach produced bogus "intros" because
+// first-pass channel phase hasn't settled; the order pointer doesn't have that
+// problem.)
 package main
 
 import (
 	"flag"
 	"fmt"
-	"hash/fnv"
 	"os"
-	"sort"
 
 	"github.com/koron-go/z80"
 )
 
 const (
-	pageSize     = 16384
-	numPages     = 32
-	songDataLow  = 0x84B3
-	songDataHigh = 0xC000 // section C only; stack/section D is >= 0xC000
+	pageSize = 16384
+	numPages = 32
 )
 
 type sam struct {
 	ram        [numPages][pageSize]byte
 	lmpr, hmpr uint8
-
-	tracing  bool
-	frameSet map[uint16]struct{} // distinct song-data reads this frame
 }
 
 func (s *sam) page(addr uint16) int {
@@ -53,12 +45,7 @@ func (s *sam) page(addr uint16) int {
 	}
 }
 
-func (s *sam) Get(addr uint16) uint8 {
-	if s.tracing && addr >= songDataLow && addr < songDataHigh {
-		s.frameSet[addr] = struct{}{}
-	}
-	return s.ram[s.page(addr)][addr&0x3FFF]
-}
+func (s *sam) Get(addr uint16) uint8    { return s.ram[s.page(addr)][addr&0x3FFF] }
 func (s *sam) Set(addr uint16, v uint8) { s.ram[s.page(addr)][addr&0x3FFF] = v }
 func (s *sam) Get16(addr uint16) uint16 {
 	return uint16(s.ram[s.page(addr)][addr&0x3FFF]) | uint16(s.ram[s.page(addr+1)][(addr+1)&0x3FFF])<<8
@@ -99,7 +86,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	s := &sam{lmpr: 0x1F, hmpr: 0x02, frameSet: map[uint16]struct{}{}}
+	s := &sam{lmpr: 0x1F, hmpr: 0x02}
 	copy(s.ram[2][:], mod)
 	cpu := &z80.CPU{Memory: s, IO: s}
 	const sentinel = 0xFFFE
@@ -122,81 +109,29 @@ func main() {
 	order0 := s.Get16(0x8462)
 	loopPt0 := s.Get16(0x84A5)
 
-	fps := []uint64{} // per-frame read fingerprints
-	orders := []uint16{}
-	s.tracing = true
-	wrapFrame := -1
-	var prevOrder uint16 = order0
-	for f := 0; f < *maxFrames; f++ {
-		clear(s.frameSet)
+	// Detect the first TWO order-pointer wraps (0xFF end-markers). The first
+	// wrap ends the whole first pass (intro + loop body); the second ends the
+	// first loop-only pass. So loopLen = wrap2-wrap1, and introLen = wrap1-loopLen.
+	var wraps []int
+	prevOrder := order0
+	for f := 0; f < *maxFrames && len(wraps) < 2; f++ {
 		call(0x8006)
-		fps = append(fps, fingerprint(s.frameSet))
 		op := s.Get16(0x8462)
-		orders = append(orders, op)
-		if wrapFrame < 0 && f > 0 && op < prevOrder {
-			wrapFrame = f // order pointer jumped backwards = song wrapped
+		if f > 0 && op < prevOrder {
+			wraps = append(wraps, f)
 		}
 		prevOrder = op
 	}
 
-	p, ls := detectLoop(fps)
 	fmt.Printf("%s:\n", *modPath)
-	fmt.Printf("  order-list start=0x%04X  loop-point(0x84A5) after init=0x%04X  (equal => loops from start)\n",
-		order0, loopPt0)
-	loopPtFinal := s.Get16(0x84A5)
-	fmt.Printf("  loop-point after playing=0x%04X\n", loopPtFinal)
-	if wrapFrame >= 0 {
-		fmt.Printf("  ORDER-POINTER wrap at frame %d => loop length %d frames (%.2fs)\n",
-			wrapFrame, wrapFrame, float64(wrapFrame)/50)
-	} else {
-		fmt.Printf("  no order-pointer wrap in %d frames\n", *maxFrames)
+	fmt.Printf("  order-list start=0x%04X  loop-point(0x84A5)=0x%04X\n", order0, loopPt0)
+	if len(wraps) < 2 {
+		fmt.Printf("  fewer than 2 wraps found (%v)\n", wraps)
+		return
 	}
-	if p > 0 {
-		fmt.Printf("  read-fingerprint: intro=%d loop=%d (%.2fs)\n", ls, p, float64(p)/50)
-	}
-}
-
-func fingerprint(set map[uint16]struct{}) uint64 {
-	addrs := make([]int, 0, len(set))
-	for a := range set {
-		addrs = append(addrs, int(a))
-	}
-	sort.Ints(addrs)
-	h := fnv.New64a()
-	var b [2]byte
-	for _, a := range addrs {
-		b[0], b[1] = byte(a), byte(a>>8)
-		h.Write(b[:])
-	}
-	return h.Sum64()
-}
-
-func detectLoop(fp []uint64) (period, loopStart int) {
-	n := len(fp)
-	if n < 50 {
-		return 0, 0
-	}
-	const minWindow = 200
-	for p := 1; p <= n/2; p++ {
-		w := minWindow
-		if w > n-p {
-			w = n - p
-		}
-		ok := true
-		for i := 0; i < w; i++ {
-			if fp[n-1-i] != fp[n-1-i-p] {
-				ok = false
-				break
-			}
-		}
-		if !ok {
-			continue
-		}
-		ls := n - p
-		for ls > 0 && fp[ls-1] == fp[ls-1+p] {
-			ls--
-		}
-		return p, ls
-	}
-	return 0, 0
+	w1, w2 := wraps[0], wraps[1]
+	loopLen := w2 - w1
+	introLen := w1 - loopLen
+	fmt.Printf("  wrap1=%d wrap2=%d => intro=%d frames (%.2fs)  loop=%d frames (%.2fs)\n",
+		w1, w2, introLen, float64(introLen)/50, loopLen, float64(loopLen)/50)
 }
