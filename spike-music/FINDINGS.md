@@ -1,9 +1,11 @@
 # Spike A — E-Tunes → WAV by decoding the module format (first principles)
 
-**Outcome: 10 WAVs delivered (`out/m01.wav … out/m10.wav`), cross-validated
-against spike B as audibly identical.** But the headline finding is a surprise
-about the *format itself* that reframes the A-vs-B comparison — see
-[§ The central finding](#the-central-finding).
+**Outcome: 10 tunes delivered as looping `.m4a` files (`out/<title>.m4a`),
+cross-validated against spike B as audibly identical.** But the headline finding
+is a surprise about the *format itself* that reframes the A-vs-B comparison — see
+[§ The central finding](#the-central-finding). (The renderer can emit WAV or any
+of FLAC/WavPack/AAC/Opus/MP3 — see §7 — and `cmd/render` can produce raw WAV
+directly.)
 
 All work is a self-contained scratch Go module under `spike-music/`
 (`go 1.22`, single dependency `koron-go/z80`). Build everything with
@@ -102,17 +104,55 @@ per 50 Hz frame:        →  call play (0x8006)  →  read 26-byte shadow
 feed shadow → Go SAASound model → 882 samples/frame @ 44.1 kHz → WAV
 ```
 
-**Loop detection:** the engine is deterministic, so the shadow *sequence* is
-eventually periodic with period = the musical loop. `detectLoop` finds the
-smallest period that repeats over an ≥8 s tail window, walks back to the loop
-start, and renders `[0, loopStart+period)` = intro + exactly one loop, then
-trims trailing silence. (Full-machine-state hashing fails here — the engine has
-a free-running counter that never lets full state repeat, even though the music
-does. Detecting on the audible register stream is the right signal.)
+**Loop detection (exact — see §7).** Render captures the shadow each frame up to
+the order-pointer wrap; `[0, wrap)` is exactly one seamless loop, repeated
+`-loops` times (default 4).
 
 Clock = **8 MHz**, sample rate 44.1 kHz — matches SimCoupé (its `SAADevice`
 never calls `SetClockRate`, so SAASound's compiled `EXTERNAL_CLK_HZ=8000000`
 stands).
+
+### 6. Order-list format & exact looping (`cmd/looptrace`)
+
+The order-list handler at `0x8461` reads the master **order pointer** (the
+self-modified operand at `0x8462`) and interprets each byte:
+
+| order byte | meaning |
+|---|---|
+| `< 0x62` | pattern index → loads all 6 channels' pattern pointers (via the table at the 2nd header pointer) |
+| `≥ 0x62` | tempo/speed change (stored at `0x82BF`) |
+| `0xFE` | **set loop point** — saves the current order position to `0x84A5` |
+| `0xFF` | **end** — reloads the order pointer from `0x84A5` and continues |
+
+The default loop point is `0x0000` (would crash), so every song places an `0xFE`
+at the very **start** of its order list. That marker plays nothing, so **every
+tune loops from the start — there is no audible intro.** (An early attempt to
+detect the loop by autocorrelating the read-address stream produced bogus
+"intros" — on the first pass the channel phase/instrument state hasn't settled,
+so the per-frame *read set* differs from later passes even though the musical
+position is identical. The order pointer is the correct, exact signal.)
+
+`cmd/render` therefore detects the loop by watching `0x8462` jump *backwards*
+(the `0xFF` wrap) and renders `[0, wrap)` — one exact, seamless loop. Validated:
+the order-pointer loop length matches the song structure, and on m03 it even
+found the *true* full loop (3960 frames) where read-autocorrelation had locked
+onto an internal repeat (3672). The 4 baked repeats are one continuous SAA
+render (no chip reset between them), so internal seams are sample-continuous;
+measured seam jump is *smaller* than the largest normal square-wave edge within
+a loop, i.e. no click.
+
+### 7. Output format
+
+FLAC/WavPack/AAC/Opus/MP3/WAV are all supported by `render-all.sh` (env `FMT=`).
+Lossless-codec comparison on this chiptune content was striking — **WavPack is
+~3× smaller than FLAC** (square waves with long held runs suit its
+decorrelation), and lossless WavPack is actually *smaller* than MP3 and most AAC
+settings. Chosen deliverable: **Apple-AAC `.m4a` @128k** (near-universal,
+~46 MB for all 10 at 4× loop), named by tune title, tagged with title / album /
+track / FRED issue / original SAM filename / loop length. Original FRED-disk
+filenames were recovered by length-matching against the SAM corpus
+(`~/sam-corpus/findings.db`): m01=FRED 51 `e1`, m02=FRED 53 `e1`, … m10=FRED 56
+`e5` — confirming the issue numbers in `jukebox.bas`.
 
 ---
 
@@ -130,8 +170,8 @@ would detune everything by a constant ratio):
 | m04 | 165.0 Hz | E3 (164.8) | m09 | 493.0 Hz | B4 (493.9) |
 | m05 | 66.0 Hz  | C2 (65.4)  | m10 | 1045.5 Hz| **C6 (1046.5)** |
 
-All WAVs: healthy RMS (3.4k–7.9k), peaks well under clipping. Durations 37–148 s
-(one intro+loop each).
+Healthy RMS (3.4k–7.9k), peaks well under clipping. Single-loop lengths 35–130 s
+(no intro); the delivered `.m4a` files contain 4 loop repeats each.
 
 **Cross-check against spike B (the validation oracle the spec asked for).**
 Spike B captured `m01.reg` (the SAA register stream from full emulation). I
@@ -198,14 +238,18 @@ frame, read 26 bytes. That is the genuinely useful product of the
   different player) would need its own entry-point/shadow RE but the same
   technique.
 
-### Caveats / limits
+### Not done / would-be follow-ups
 
-- Loop boundaries are heuristic (shadow-sequence periodicity); musically clean on
-  all 10 but not authored loop points.
+- **Not integrated into `samfile extract/cat -c`.** This is a standalone spike
+  module by design. Wiring it in means pulling the SAA model + `koron-go/z80` +
+  the engine-driver into the main module, adding E-Tracker detection (the shared
+  0x4B3-byte prefix / `"ETracker (C) BY ESI.R"` signature is a clean fingerprint),
+  and the `-c` path — a real follow-up, and really the *output* of the A-vs-B
+  decision.
 - The `0xF9` status port is stubbed to "nothing pending" (no SPACE keypress), so
   the player never skips tracks — correct for single-tune rendering.
-- Verified by register-stream match + pitch analysis; I could not A/B the actual
-  audio by ear in this environment.
+- Verified by register-stream match + pitch analysis + duration/loop checks; I
+  could not A/B the actual audio by ear in this environment.
 
 ---
 
@@ -217,10 +261,11 @@ go build ./...
 # 1. decrunch the player (for RE; not needed to render)
 ./decrunch -decruncher ~/git/sam-jukebox/assets/decruncher \
            -ecode ~/git/sam-jukebox/assets/E-Code -out /tmp/ecode-8000.bin
-# 2. render all ten tunes
-for m in m01 m02 m03 m04 m05 m06 m07 m08 m09 m10; do
-    ./render -v -mod ~/git/sam-jukebox/assets/$m -out out/$m.wav
-done
-# 3. inspect a module's per-frame SAA shadow
-./probe -mod ~/git/sam-jukebox/assets/m01 -frames 60
+# 2. render the library (4x loop .m4a named by title) — the deliverable
+./render-all.sh                 # or: ./render-all.sh -l 2   ;   FMT=flac ./render-all.sh
+# 3. render a single tune to WAV directly
+./render -v -loops 4 -mod ~/git/sam-jukebox/assets/m01 -out /tmp/m01.wav
+# 4. inspect a module's loop / SAA shadow
+./looptrace -mod ~/git/sam-jukebox/assets/m01
+./probe     -mod ~/git/sam-jukebox/assets/m01 -frames 60
 ```

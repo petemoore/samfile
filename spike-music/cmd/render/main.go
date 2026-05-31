@@ -1,4 +1,5 @@
-// Command render converts a SAM Coupé E-Tracker module to a WAV file.
+// Command render converts a SAM Coupé E-Tracker module to a WAV file (one or
+// more loop iterations).
 //
 // Pipeline (see FINDINGS.md for the reverse-engineering that justifies it):
 //
@@ -8,11 +9,13 @@
 //	                             the engine maintains at 0x83D3..0x83EC
 //	feed shadow -> Go SAASound model -> 44.1 kHz stereo PCM -> WAV
 //
-// Loop detection: the replay engine is deterministic, so its full mutable
-// state (physical page 2 = logical 0x8000..0xBFFF) repeating exactly means the
-// song has looped. We render from frame 0 up to and including the frame whose
-// post-state first repeats an earlier frame's state (= intro + one full loop),
-// then trim trailing silence.
+// Loop detection (exact): the engine's master order-list pointer is the
+// self-modified operand at 0x8462. It advances through the order list and, on
+// the 0xFF end-marker, is reloaded from the loop point (0x84A5, set by the 0xFE
+// marker which E-Tracker songs place at the very start) — so it jumps
+// *backwards*. That backward jump is the loop boundary; songs loop from the
+// start (no intro). We capture the SAA shadow each frame up to the wrap;
+// [0, wrap) is exactly one seamless loop, repeated -loops times in the output.
 package main
 
 import (
@@ -32,6 +35,7 @@ const (
 	initEntry       = 0x8000
 	shadowBase      = 0x83D3 // regs 0x00..0x19 live here (26 bytes)
 	shadowLen       = 26
+	orderPtrAddr    = 0x8462 // self-modified operand: live master order-list pointer
 	frameHz         = 50
 	sampleRate      = 44100
 	samplesPerFrame = sampleRate / frameHz // 882
@@ -57,6 +61,9 @@ func (s *sam) page(addr uint16) int {
 
 func (s *sam) Get(addr uint16) uint8    { return s.ram[s.page(addr)][addr&0x3FFF] }
 func (s *sam) Set(addr uint16, v uint8) { s.ram[s.page(addr)][addr&0x3FFF] = v }
+func (s *sam) Get16(addr uint16) uint16 {
+	return uint16(s.Get(addr)) | uint16(s.Get(addr+1))<<8
+}
 func (s *sam) In(port uint8) uint8 {
 	switch port {
 	case 0xFA:
@@ -81,7 +88,9 @@ func main() {
 	var (
 		modPath   = flag.String("mod", "", "module file (m01..m10)")
 		outPath   = flag.String("out", "", "output WAV path")
-		maxFrames = flag.Int("max-frames", frameHz*360, "hard cap on frames (default 360s; loop search covers up to half this)")
+		loops     = flag.Int("loops", 4, "number of times to repeat the loop body in the output")
+		loopsAbbr = flag.Int("l", 0, "alias for -loops (0 = use -loops)")
+		maxFrames = flag.Int("max-frames", frameHz*600, "hard cap on frames if no loop wrap is found")
 		verbose   = flag.Bool("v", false, "verbose")
 		regDump   = flag.String("regdump", "", "also write per-frame SAA registers (regs 00..19) as hex CSV to this path")
 	)
@@ -89,6 +98,9 @@ func main() {
 	if *modPath == "" || *outPath == "" {
 		fmt.Fprintln(os.Stderr, "usage: render -mod FILE -out FILE.wav [-max-frames N]")
 		os.Exit(2)
+	}
+	if *loopsAbbr != 0 {
+		*loops = *loopsAbbr // -l overrides -loops
 	}
 	mod, err := os.ReadFile(*modPath)
 	must(err)
@@ -119,135 +131,75 @@ func main() {
 
 	call(initEntry)
 
-	// Run frames, capturing the SAA register shadow each frame.
+	// Capture exactly one loop. The engine's master order-list pointer (the
+	// self-modified operand at 0x8462) advances monotonically through the order
+	// list; when it hits the 0xFF end-marker it is reloaded from the loop point
+	// (0x84A5) and jumps *backwards*. That backward jump is the loop boundary.
+	// E-Tracker songs place the 0xFE "set loop point" marker at the very start,
+	// so the loop is the whole song from frame 0 (no separate intro). We capture
+	// the SAA register shadow each frame up to the wrap; [0, wrap) is one
+	// seamless loop (the wrap frame would re-play frame 0's content).
 	type frame [shadowLen]byte
 	var shadows []frame
+	prevOrder := s.Get16(orderPtrAddr)
+	wrapped := false
 	for f := 0; f < *maxFrames; f++ {
 		call(playEntry)
 		var sh frame
 		for i := 0; i < shadowLen; i++ {
 			sh[i] = s.Get(uint16(shadowBase + i))
 		}
+		order := s.Get16(orderPtrAddr)
+		if f > 0 && order < prevOrder {
+			wrapped = true // order pointer jumped back: end of one loop
+			break
+		}
+		prevOrder = order
 		shadows = append(shadows, sh)
+	}
+	loopFrames := len(shadows)
+	if *verbose {
+		if wrapped {
+			fmt.Printf("loop = %d frames (%.2fs), no intro (order-pointer wrap)\n",
+				loopFrames, float64(loopFrames)/frameHz)
+		} else {
+			fmt.Printf("no order-pointer wrap within %d frames; using all captured\n", *maxFrames)
+		}
 	}
 
 	if *regDump != "" {
 		var b []byte
 		for f, sh := range shadows {
-			b = append(b, []byte(fmt.Sprintf("%d", f))...)
+			b = fmt.Appendf(b, "%d", f)
 			for _, r := range sh {
-				b = append(b, []byte(fmt.Sprintf(",%02X", r))...)
+				b = fmt.Appendf(b, ",%02X", r)
 			}
 			b = append(b, '\n')
 		}
 		must(os.WriteFile(*regDump, b, 0o644))
 	}
 
-	// Loop detection on the SAA shadow *sequence*. The replay engine is
-	// deterministic, so once past any intro the register stream is periodic
-	// with period = the musical loop length. (We detect on the audible
-	// register stream rather than full machine state because the engine keeps
-	// a free-running frame/LFO counter that never lets full state repeat
-	// exactly even though the music loops.) Find the smallest period whose
-	// repeat holds over a long verification window at the tail, then find the
-	// earliest frame from which that period holds continuously to the end, and
-	// render [0, loopStart+period) = intro + exactly one loop.
-	renderN := len(shadows)
-	if p, loopStart := detectLoop(shadows); p > 0 {
-		renderN = loopStart + p
-		if *verbose {
-			fmt.Printf("loop detected: intro %d frames, loop %d frames (%.2fs); rendering %d frames (%.2fs)\n",
-				loopStart, p, float64(p)/frameHz, renderN, float64(renderN)/frameHz)
-		}
-	} else if *verbose {
-		fmt.Printf("no loop within %d frames; rendering all + trimming silence\n", *maxFrames)
-	}
-
-	// Render: feed each frame's 26 registers to the SAA, enable sound once,
-	// then generate one frame of samples.
+	// Render the loop body `*loops` times. Feeding the chip is continuous across
+	// repeats (we do not reset it), so the seam is seamless: the SAA state at the
+	// end of one loop is exactly what it was entering frame 0.
 	chip := saa.New(0, 0)             // SAM defaults: 8 MHz clock, 44100 Hz
 	chip.WriteAddressData(0x1C, 0x01) // sound enable
-	pcm := make([]int16, 0, renderN*samplesPerFrame*2)
+	pcm := make([]int16, 0, loopFrames*(*loops)*samplesPerFrame*2)
 	buf := make([]int16, samplesPerFrame*2)
-	for f := 0; f < renderN; f++ {
-		sh := shadows[f]
-		for r := 0; r < shadowLen; r++ {
-			chip.WriteAddressData(byte(r), sh[r])
-		}
-		chip.GenerateMany(buf, samplesPerFrame)
-		pcm = append(pcm, buf...)
-	}
-
-	pcm = trimTrailingSilence(pcm)
-	must(wav.WriteStereo16(*outPath, pcm, sampleRate))
-	fmt.Printf("%s: %d frames -> %s (%.2fs)\n",
-		*modPath, renderN, *outPath, float64(len(pcm)/2)/float64(sampleRate))
-}
-
-// detectLoop finds the musical loop in a shadow-register sequence. It returns
-// (period, loopStart) such that shadows[f] == shadows[f+period] for all
-// f in [loopStart, len-period), with the smallest such period — or (0,0) if no
-// stable loop is found. A period is accepted only if it repeats over a
-// verification window of at least minWindow frames at the tail (guards against
-// short coincidental matches).
-func detectLoop[T comparable](shadows []T) (period, loopStart int) {
-	n := len(shadows)
-	if n < 100 {
-		return 0, 0
-	}
-	const minWindow = 400 // ≥8s of identical repetition to accept a period
-	maxPeriod := n / 2
-	for p := 1; p <= maxPeriod; p++ {
-		// Verify p over a window at the tail.
-		w := minWindow
-		if w > n-p {
-			w = n - p
-		}
-		ok := true
-		for i := 0; i < w; i++ {
-			if shadows[n-1-i] != shadows[n-1-i-p] {
-				ok = false
-				break
+	for rep := 0; rep < *loops; rep++ {
+		for f := 0; f < loopFrames; f++ {
+			sh := shadows[f]
+			for r := 0; r < shadowLen; r++ {
+				chip.WriteAddressData(byte(r), sh[r])
 			}
+			chip.GenerateMany(buf, samplesPerFrame)
+			pcm = append(pcm, buf...)
 		}
-		if !ok {
-			continue
-		}
-		// Found a tail period p. Walk back to the earliest frame from which
-		// the period holds continuously to the end.
-		ls := n - p
-		for ls > 0 && shadows[ls-1] == shadows[ls-1+p] {
-			ls--
-		}
-		return p, ls
 	}
-	return 0, 0
-}
 
-// trimTrailingSilence removes trailing stereo frames whose absolute amplitude
-// stays under a small threshold, leaving a short tail.
-func trimTrailingSilence(pcm []int16) []int16 {
-	const thresh = 64
-	n := len(pcm) / 2
-	last := 0
-	for i := 0; i < n; i++ {
-		l, r := pcm[2*i], pcm[2*i+1]
-		if abs16(l) > thresh || abs16(r) > thresh {
-			last = i
-		}
-	}
-	end := (last + frameHz/2) * 2 // keep ~0.5s tail
-	if end > len(pcm) {
-		end = len(pcm)
-	}
-	return pcm[:end]
-}
-
-func abs16(v int16) int16 {
-	if v < 0 {
-		return -v
-	}
-	return v
+	must(wav.WriteStereo16(*outPath, pcm, sampleRate))
+	fmt.Printf("%s: loop=%d frames x%d -> %s (%.2fs)\n",
+		*modPath, loopFrames, *loops, *outPath, float64(len(pcm)/2)/float64(sampleRate))
 }
 
 func must(err error) {
