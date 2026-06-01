@@ -66,6 +66,27 @@ func encodeMP3(w io.Writer, pcm []int16, sampleRate, bitrateKbps int, tags Tags)
 		enc.Mpeg.Padding = 0
 	}
 
+	// Condition the PCM before handing it to shine. shine's windowFilterSubband
+	// walks the interleaved buffer with unsafe pointer arithmetic and, on the
+	// final frame, advances one stride PAST the last sample it reads — for the
+	// 2nd (odd-offset) channel that overshoots a frame-exact slice. Untreated
+	// this both (a) reads garbage into the final frame of a partial input and
+	// (b) forms an out-of-bounds pointer that trips Go's -race/checkptr (a fatal
+	// "invalid allocation"/"bad pointer"). So we (1) pad to a whole number of
+	// frames, zero-filling the final frame (clean trailing silence, not garbage)
+	// and (2) give the backing array a window-sized margin beyond that length so
+	// the trailing pointer always lands strictly inside the allocation — never
+	// at or past the span limit — regardless of allocation size class. The
+	// margin is pure capacity beyond len(padded); shine reads only `total`
+	// samples (whole frames), so it is never encoded. (Reported upstream:
+	// braheezy/shine-mp3 windowFilterSubband / Write.)
+	frame := int(enc.Mpeg.GranulesPerFrame) * 576 * 2 // 576 = GRANULE_SIZE (Layer III)
+	nFrames := (len(pcm) + frame - 1) / frame
+	total := nFrames * frame
+	const slack = 64                             // > stride; window-sized margin
+	padded := make([]int16, total+slack)[:total] // len=total (whole frames) + slack cap
+	copy(padded, pcm)
+
 	// Feed interleaved int16 stereo PCM; shine writes MP3 frames to w.
-	return enc.Write(w, pcm)
+	return enc.Write(w, padded)
 }

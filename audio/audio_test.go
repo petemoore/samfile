@@ -101,12 +101,6 @@ func TestEncodeFLACLossless(t *testing.T) {
 }
 
 func TestEncodeMP3(t *testing.T) {
-	if raceEnabled {
-		// shine-mp3's l3subband uses unsafe pointer arithmetic that trips Go's
-		// -race/checkptr instrumentation (fatal "bad pointer"). MP3 output is
-		// correct in normal builds; only the checkptr-instrumented build crashes.
-		t.Skip("shine-mp3 uses unsafe pointer arithmetic incompatible with -race/checkptr")
-	}
 	pcm := tone(44100) // 1s
 	var buf bytes.Buffer
 	tags := Tags{Title: "e1", Album: "FRED 51.mgt", SourceSHA256: "abc123", Software: "samfile"}
@@ -156,5 +150,21 @@ func TestWAVInfoChunk(t *testing.T) {
 	}
 	if !bytes.Contains(b, []byte("data")) {
 		t.Fatalf("WAV missing data chunk")
+	}
+}
+
+// TestEncodeMP3Lengths exercises the PCM-conditioning in encodeMP3 across exact
+// frame-multiple, partial-final-frame, and tiny inputs. Under -race this also
+// guards against the shine-mp3 unsafe-pointer overshoot regressing.
+func TestEncodeMP3Lengths(t *testing.T) {
+	const frame = 2304 // MPEG-1 @ 44100: 1152/ch * 2 ch
+	for _, n := range []int{frame, frame * 3, frame*2 + 650, 64, 2} {
+		var buf bytes.Buffer
+		if err := Encode(&buf, tone(n/2), 44100, "mp3", Options{}); err != nil {
+			t.Fatalf("n=%d: %v", n, err)
+		}
+		if buf.Len() < 4 {
+			t.Fatalf("n=%d: empty MP3", n)
+		}
 	}
 }
