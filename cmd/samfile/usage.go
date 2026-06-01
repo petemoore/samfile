@@ -11,8 +11,8 @@ Manipulate files in SAM Coupé floppy disk images.
     samfile basic-to-text [--lossy]
     samfile text-to-basic
     samfile screen-to-png [--mode MODE] [--format FORMAT]
-    samfile cat -i IMAGE -f FILE [-c]
-    samfile extract -i IMAGE [-t TARGET] [-c]
+    samfile cat -i IMAGE -f FILE [-c] [-a FORMAT] [--loops N]
+    samfile extract -i IMAGE [-t TARGET] [-c] [-a FORMAT] [--loops N]
     samfile ls -i IMAGE
     samfile --help
     samfile --version
@@ -34,12 +34,14 @@ Manipulate files in SAM Coupé floppy disk images.
                           palettes) animate when --format gif is given;
                           otherwise palette A is rendered.
     cat                   Output a single file from a SAM Disk image file to
-                          stdout. With -c, BASIC files are detokenised to text
-                          and SCREEN$ files are emitted as PNG bytes.
+                          stdout. With -c, BASIC files are detokenised to text,
+                          SCREEN$ files are emitted as PNG bytes, and E-Tracker
+                          modules are rendered to audio.
     extract               Extracts all files from a SAM Disk image file to a
                           local directory. With -c, BASIC files are written as
-                          '<name>.txt' (detokenised) and SCREEN$ files as
-                          '<name>.png'; other types extract raw.
+                          '<name>.txt' (detokenised), SCREEN$ files as
+                          '<name>.png', and E-Tracker modules as audio files
+                          ('<name>.mp3' etc.); other types extract raw.
     ls                    Lists files on SAM Disk image file.
 
   Options:
@@ -55,8 +57,14 @@ Manipulate files in SAM Coupé floppy disk images.
                           instead.
     -c                    For 'add': the input file is a code file. For 'cat'
                           and 'extract': convert known types on output — SAM
-                          BASIC files are detokenised to text and SCREEN$
-                          files are rendered to PNG; other types stay raw.
+                          BASIC files are detokenised to text, SCREEN$ files
+                          are rendered to PNG, and E-Tracker modules are
+                          rendered to audio; other types stay raw.
+    -a FORMAT, --audio-format FORMAT
+                          With -c, output format for E-Tracker tunes:
+                          wav, flac, or mp3 [default: mp3].
+    --loops N             With -c, times to repeat an E-Tracker tune's loop
+                          body (after its one-shot intro) [default: 4].
     -s MODE, --screen MODE
                           Add the input file as a SCREEN$ (display dump) file
                           with the given SAM MODE (1..4). The input file (-f)
