@@ -62,7 +62,9 @@ Manipulate files in SAM Coupé floppy disk images.
                           rendered to audio; other types stay raw.
     -a FORMAT, --audio-format FORMAT
                           With -c, output format for E-Tracker tunes:
-                          wav, flac, or mp3 [default: mp3].
+                          wav, flac, or mp3 [default: mp3]. Provenance tags are
+                          written to mp3 (ID3v2) and wav (INFO); flac is
+                          currently untagged.
     --loops N             With -c, times to repeat an E-Tracker tune's loop
                           body (after its one-shot intro) [default: 4].
     -s MODE, --screen MODE

@@ -91,11 +91,12 @@ func wavInfoChunk(t Tags) []byte {
 			continue
 		}
 		v := append([]byte(it.val), 0) // null-terminated
+		dataSize := len(v)             // RIFF chunk size excludes the pad byte
 		if len(v)%2 == 1 {
-			v = append(v, 0) // pad to even
+			v = append(v, 0) // pad to even (not counted in dataSize)
 		}
 		var sz [4]byte
-		le.PutUint32(sz[:], uint32(len(v)))
+		le.PutUint32(sz[:], uint32(dataSize))
 		body = append(body, []byte(it.id)...)
 		body = append(body, sz[:]...)
 		body = append(body, v...)
