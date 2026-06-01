@@ -101,6 +101,12 @@ func TestEncodeFLACLossless(t *testing.T) {
 }
 
 func TestEncodeMP3(t *testing.T) {
+	if raceEnabled {
+		// shine-mp3's l3subband uses unsafe pointer arithmetic that trips Go's
+		// -race/checkptr instrumentation (fatal "bad pointer"). MP3 output is
+		// correct in normal builds; only the checkptr-instrumented build crashes.
+		t.Skip("shine-mp3 uses unsafe pointer arithmetic incompatible with -race/checkptr")
+	}
 	pcm := tone(44100) // 1s
 	var buf bytes.Buffer
 	tags := Tags{Title: "e1", Album: "FRED 51.mgt", SourceSHA256: "abc123", Software: "samfile"}
