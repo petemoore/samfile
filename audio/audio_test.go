@@ -100,6 +100,36 @@ func TestEncodeFLACLossless(t *testing.T) {
 	}
 }
 
+func TestEncodeMP3(t *testing.T) {
+	pcm := tone(44100) // 1s
+	var buf bytes.Buffer
+	tags := Tags{Title: "e1", Album: "FRED 51.mgt", SourceSHA256: "abc123", Software: "samfile"}
+	if err := Encode(&buf, pcm, 44100, "mp3", Options{Tags: tags}); err != nil {
+		t.Fatal(err)
+	}
+	b := buf.Bytes()
+	if len(b) < 200 {
+		t.Fatalf("MP3 suspiciously small: %d bytes", len(b))
+	}
+	if string(b[0:3]) != "ID3" {
+		t.Fatalf("missing ID3v2 tag")
+	}
+	if !bytes.Contains(b, []byte("e1")) || !bytes.Contains(b, []byte("abc123")) {
+		t.Fatalf("ID3 missing expected tag values")
+	}
+	sync := false
+	for i := 0; i+1 < len(b); i++ {
+		if b[i] == 0xFF && b[i+1]&0xE0 == 0xE0 {
+			sync = true
+			break
+		}
+	}
+	if !sync {
+		t.Fatalf("no MP3 frame sync found")
+	}
+	t.Logf("MP3 output size: %d bytes", len(b))
+}
+
 func TestEncodeUnsupported(t *testing.T) {
 	if err := Encode(&bytes.Buffer{}, tone(10), 44100, "m4a", Options{}); err == nil {
 		t.Fatal("want error for m4a")
