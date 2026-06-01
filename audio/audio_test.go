@@ -40,6 +40,21 @@ func TestEncodeWAVRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEncodeFLAC(t *testing.T) {
+	pcm := tone(8820)
+	var buf bytes.Buffer
+	if err := Encode(&buf, pcm, 44100, "flac", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	b := buf.Bytes()
+	if len(b) < 8 || string(b[0:4]) != "fLaC" {
+		t.Fatalf("missing fLaC magic")
+	}
+	if len(b) >= len(pcm)*2 {
+		t.Fatalf("FLAC not smaller than raw PCM (%d >= %d)", len(b), len(pcm)*2)
+	}
+}
+
 func TestEncodeUnsupported(t *testing.T) {
 	if err := Encode(&bytes.Buffer{}, tone(10), 44100, "m4a", Options{}); err == nil {
 		t.Fatal("want error for m4a")
