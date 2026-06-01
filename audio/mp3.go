@@ -30,14 +30,10 @@ func encodeMP3(w io.Writer, pcm []int16, sampleRate, bitrateKbps int, tags Tags)
 	enc := mp3.NewEncoder(sampleRate, 2)
 
 	// Update bitrate-dependent exported fields.
-	// findBitrateIndex is unexported, so we scan the known MPEG bitrate table
-	// to find the correct BitrateIndex for this bitrate + MPEG version.
-	// MPEG-I (44100/48000/32000 Hz): column 3; MPEG-II: column 2; MPEG-2.5: column 0.
-	// bitRates[i][version] — we find i such that bitRates[i][version] == bitrateKbps.
-	// Since we can't call the unexported function, derive BitrateIndex from
-	// the relationship: BitrateIndex is the same as what NewEncoder stored for 128,
-	// so we locate 256 by offsetting — but this is fragile. Instead, reuse the
-	// exported CheckConfig return (mpegVersion) and scan ourselves via a local table.
+	// shine's findBitrateIndex is unexported, so we reproduce the lookup here
+	// using the same table (bitRates[index][mpegVersion]) from tables.go.
+	// Columns: 0=MPEG-2.5, 1=reserved, 2=MPEG-II, 3=MPEG-I.
+	// We find index i such that mpegBitRates[i][mpegVersion] == bitrateKbps.
 	mpegBitRates := [16][4]int64{
 		{-1, -1, -1, -1}, {8, -1, 8, 32}, {16, -1, 16, 40}, {24, -1, 24, 48},
 		{32, -1, 32, 56}, {40, -1, 40, 64}, {48, -1, 48, 80}, {56, -1, 56, 96},
@@ -60,9 +56,9 @@ func encodeMP3(w io.Writer, pcm []int16, sampleRate, bitrateKbps int, tags Tags)
 	enc.Mpeg.BitrateIndex = bitrateIdx
 
 	// Recompute slot-count fields that depend on bitrate (mirrors NewEncoder logic).
-	bitsPerSlot := int64(8)
+	// enc.Mpeg.BitsPerSlot is always 8 for Layer III (set by NewEncoder).
 	avg := float64(enc.Mpeg.GranulesPerFrame) * 576.0 / float64(sampleRate) *
-		(float64(bitrateKbps) * 1000 / float64(bitsPerSlot))
+		(float64(bitrateKbps) * 1000 / float64(enc.Mpeg.BitsPerSlot))
 	enc.Mpeg.WholeSlotsPerFrame = int64(avg)
 	enc.Mpeg.FracSlotsPerFrame = avg - float64(enc.Mpeg.WholeSlotsPerFrame)
 	enc.Mpeg.Slot_lag = -enc.Mpeg.FracSlotsPerFrame
