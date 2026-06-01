@@ -3,7 +3,10 @@ package audio
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
 	"testing"
+
+	"github.com/mewkiz/flac"
 )
 
 func tone(n int) []int16 {
@@ -52,6 +55,48 @@ func TestEncodeFLAC(t *testing.T) {
 	}
 	if len(b) >= len(pcm)*2 {
 		t.Fatalf("FLAC not smaller than raw PCM (%d >= %d)", len(b), len(pcm)*2)
+	}
+}
+
+func TestEncodeFLACLossless(t *testing.T) {
+	pcm := tone(8820)
+	var buf bytes.Buffer
+	if err := Encode(&buf, pcm, 44100, "flac", Options{}); err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := flac.New(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("flac.New: %v", err)
+	}
+	defer stream.Close()
+
+	var got []int16
+	for {
+		f, err := stream.ParseNext()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("ParseNext: %v", err)
+		}
+		if len(f.Subframes) != 2 {
+			t.Fatalf("frame has %d subframes, want 2", len(f.Subframes))
+		}
+		left := f.Subframes[0].Samples
+		right := f.Subframes[1].Samples
+		for i := range left {
+			got = append(got, int16(left[i]), int16(right[i]))
+		}
+	}
+
+	if len(got) != len(pcm) {
+		t.Fatalf("decoded %d samples, want %d", len(got), len(pcm))
+	}
+	for i := range pcm {
+		if got[i] != pcm[i] {
+			t.Fatalf("sample[%d]: decoded %d, want %d (not lossless)", i, got[i], pcm[i])
+		}
 	}
 }
 
