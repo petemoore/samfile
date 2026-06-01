@@ -63,6 +63,9 @@ func Frames(body []byte) (shadows [][shadowLen]byte, introFrames, loopFrames int
 		w1, w2 := wraps[0], wraps[1]
 		loopFrames = w2 - w1
 		introFrames = w1 - loopFrames
+		if introFrames < 0 {
+			introFrames = 0
+		}
 		shadows = shadows[:w1]
 	} else {
 		loopFrames = len(shadows) // no wrap found: treat all as the loop
