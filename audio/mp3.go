@@ -78,8 +78,15 @@ func encodeMP3(w io.Writer, pcm []int16, sampleRate, bitrateKbps int, tags Tags)
 	// the trailing pointer always lands strictly inside the allocation — never
 	// at or past the span limit — regardless of allocation size class. The
 	// margin is pure capacity beyond len(padded); shine reads only `total`
-	// samples (whole frames), so it is never encoded. (Reported upstream:
-	// braheezy/shine-mp3 windowFilterSubband / Write.)
+	// samples (whole frames), so it is never encoded.
+	//
+	// Note for maintainers: shine-mp3's `main` branch already removed the unsafe
+	// pointer walk and so doesn't need this conditioning — but `main` is
+	// relicensed LGPL-2.0, whereas the v0.1.0 release we pin is MIT (matching
+	// samfile's licence), and v0.1.0 produces byte-identical MP3 output to `main`
+	// (verified across all ten FRED tunes). So we deliberately stay on MIT
+	// v0.1.0 and condition the input here. Do NOT bump the dependency without a
+	// licence review; this workaround pairs with the pinned v0.1.0.
 	frame := int(enc.Mpeg.GranulesPerFrame) * 576 * 2 // 576 = GRANULE_SIZE (Layer III)
 	nFrames := (len(pcm) + frame - 1) / frame
 	total := nFrames * frame
