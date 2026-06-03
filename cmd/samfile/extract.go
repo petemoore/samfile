@@ -26,7 +26,21 @@ func extract(arguments map[string]any) {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	convert, _ := arguments["-c"].(bool)
+
+	var copts convertOptions
+	if convert {
+		imageBytes, err := os.ReadFile(imageName)
+		if err != nil {
+			log.Fatalf("failed to read disk image %q for provenance: %v", imageName, err)
+		}
+		copts, err = parseConvertOptions(arguments, imageName, imageBytes)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	dir := diskImage.DiskJournal()
 	fileFound := false
 	for _, diskfile := range dir {
@@ -43,11 +57,12 @@ func extract(arguments map[string]any) {
 		body := f.Body
 		base := strings.ReplaceAll(filename, string([]rune{os.PathSeparator}), "#")
 		if convert {
-			if out, ok, err := convertBody(body, diskfile); err != nil {
+			copts.fileName = filename
+			if out, ok, err := convertBody(body, diskfile, copts); err != nil {
 				log.Printf("warning: could not convert %q, extracting raw: %v", filename, err)
 			} else if ok {
 				body = out
-				base, _ = convertedName(base, diskfile)
+				base, _ = convertedName(base, diskfile, f.Body, copts)
 			}
 		}
 		localFile := filepath.Join(target, base)

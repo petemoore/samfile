@@ -22,8 +22,8 @@ Manipulate files in SAM Coupé floppy disk images.
     samfile add -i IMAGE -f FILE -s MODE
     samfile basic-to-text
     samfile screen-to-png [--mode MODE] [--format FORMAT]
-    samfile cat -i IMAGE -f FILE [-c]
-    samfile extract -i IMAGE [-t TARGET] [-c]
+    samfile cat -i IMAGE -f FILE [-c] [-a FORMAT] [--loops N]
+    samfile extract -i IMAGE [-t TARGET] [-c] [-a FORMAT] [--loops N]
     samfile ls -i IMAGE
     samfile --help
     samfile --version
@@ -37,11 +37,13 @@ Manipulate files in SAM Coupé floppy disk images.
     screen-to-png         Read a raw SAM SCREEN$ body from stdin and write a PNG
                           (or GIF, with --format gif) to stdout. MODE 4 only.
     cat                   Output a single file from a SAM Disk image file to
-                          stdout. With -c, BASIC files are detokenised to text
-                          and SCREEN$ files are rendered to PNG.
+                          stdout. With -c, BASIC files are detokenised to text,
+                          SCREEN$ files are rendered to PNG, and E-Tracker music
+                          modules are decoded to audio (default 256k MP3).
     extract               Extracts all files from a SAM Disk image file to a
                           local directory. With -c, BASIC files become
-                          '<name>.txt' and SCREEN$ files '<name>.png'.
+                          '<name>.txt', SCREEN$ files '<name>.png', and
+                          E-Tracker tunes '<name>.<audio-format>'.
     ls                    Lists files on SAM Disk image file.
 
   Options:
@@ -53,7 +55,15 @@ Manipulate files in SAM Coupé floppy disk images.
     -t TARGET             An existing directory to write all files to. Defaults
                           to current directory.
     -f FILE               A single file inside the disk image.
-    -c                    File is a code file.
+    -c                    File is a code file (add); convert known types on
+                          output (cat/extract).
+    -a FORMAT, --audio-format FORMAT
+                          With -c, output format for E-Tracker tunes: wav, flac
+                          or mp3 [default: mp3]. All are pure-Go (no external
+                          tools); for m4a/opus/etc. emit wav and pipe to ffmpeg.
+    --loops N             With -c, times to repeat an E-Tracker tune's loop body
+                          after its one-shot intro [default: 4]. Audio carries
+                          provenance tags (disk name + SHA-256, SAM filename).
     -l LOAD_ADDRESS       Load address of code file on the SAM Disk image.
     -e EXECUTION_ADDRESS  Execution address of code file on the SAM Disk image.
     --help                Display this help text.
@@ -65,6 +75,10 @@ Manipulate files in SAM Coupé floppy disk images.
     file 'SCREENS.basic' as plain text listing:
 
     $ samfile cat -i fred27.mgt -f SCREENS | samfile basic-to-text > SCREENS.basic
+
+    Decode the E-Tracker tune 'e1' from a FRED disk to a 256k MP3 (looping 4x):
+
+    $ samfile cat -i "FRED Magazine Issue 51 (1994).mgt" -f e1 -c > e1.mp3
 
   SAMFile source code:
     https://github.com/petemoore/samfile
